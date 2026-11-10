@@ -1,4 +1,4 @@
-# SpellSprint
+# Blankrace
 
 A browser-based spelling race: people gather in a Room, each Round shows a picture, and Players race to spell what it shows.
 

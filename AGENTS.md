@@ -11,7 +11,8 @@ The project is based on a SaaS starter template built on Cloudflare's edge platf
 - **Database**: Cloudflare D1 (SQLite at the edge)
 - **Auth**: Better Auth (email/password with verification)
 - **Email**: pluggable adapter; Cloudflare Email Service by default (`send_email` binding)
-- **Tests**: Vitest (`@cloudflare/vitest-plugin`) for the Worker + D1; Playwright for a smoke E2E
+- **Tests**: Vitest (`@cloudflare/vitest-plugin`) for the Worker + D1; a smoke E2E suite in `e2e/`
+- **Browser checks**: use `agent-browser` (`agent-browser skills get core`) to open, drive and screenshot the running app
 
 ## Critical Architecture
 
@@ -69,7 +70,7 @@ src/cli/                    # CLI commands (auth user management + db utilities)
 src/config.ts               # Global app configuration (app name, etc.)
 bin/                        # CLI entry points (init, auth, db) and worktree scripts
 test/                       # Vitest worker integration tests (D1 migrations applied)
-e2e/                        # Playwright smoke tests
+e2e/                        # Smoke E2E tests
 ```
 
 ## Key Patterns
@@ -161,7 +162,8 @@ const users = await db.selectFrom("users").selectAll().execute();
 # Development
 npm run dev                         # Start dev server (logs appear in terminal)
 npm test                            # Vitest worker integration tests
-npm run test:e2e                    # Playwright smoke test (starts the dev server)
+npm run test:e2e                    # Smoke E2E test (starts the dev server)
+agent-browser open <APP_BASE_URL>   # Check a change by eye in a real browser (screenshot, eval, hover, ...)
 
 # Database — migrations
 npm run db:migrate                  # Run migrations locally
@@ -386,7 +388,7 @@ Projects built on this starter should edit few starter files so later upstream p
 > Developers: Add project-specific instructions below as the app evolves.
 > Keep this section updated with domain models, business logic, and conventions.
 
-### SpellSprint
+### Blankrace
 Vocabulary: `GLOSSARY.md` (Room, Match, Round, Seat, Blanks, Guest, Account, ...). Decisions: `docs/adr/`. Spec: GitHub issue #3.
 
 ### Frontend architecture

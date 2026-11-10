@@ -1,5 +1,5 @@
 {
-	"name": "cloudflare-fullstack-starter",
+	"name": "blankrace",
 	"description": "SaaS-ready fullstack template: React + Vite + Hono + Cloudflare Workers + D1 + Better Auth + shadcn/ui",
 	"starter": {
 		"name": "cloudflare-fullstack-starter",

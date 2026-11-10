@@ -24,7 +24,7 @@ const colours = [
 ] as const;
 
 const typeStyles = [
-	["headline-display", "headline-display", "SpellSprint"],
+	["headline-display", "headline-display", "Blankrace"],
 	["headline-lg", "headline-lg", "Spell it before the clock does"],
 	["headline-md", "headline-md", "Round 3 of 5"],
 	["headline-sm", "headline-sm", "Players in the Room"],
@@ -34,7 +34,7 @@ const typeStyles = [
 	["label-lg", "label-lg", "START MATCH"],
 	["label-md", "label-md", "JOIN ROOM"],
 	["label-sm", "label-sm", "ROOM CODE"],
-	["code-md", "code-md", "spellsprint.app/r/QX7P"],
+	["code-md", "code-md", "blankrace.com/r/QX7P"],
 ] as const;
 
 const radii = [

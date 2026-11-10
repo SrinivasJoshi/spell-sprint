@@ -13,7 +13,7 @@
 
 export const config = {
 	// Application name - displayed in UI, emails, and page titles
-	appName: "My App",
+	appName: "Blankrace",
 
 	// The browser's HTTP layer (src/react-app/lib/http/, docs/MECHANISMS.md)
 	http: {
