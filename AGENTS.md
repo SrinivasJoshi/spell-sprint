@@ -389,3 +389,17 @@ Projects built on this starter should edit few starter files so later upstream p
 ---
 
 *This file is read by AI coding agents. Keep it concise and actionable.*
+
+## Agent skills
+
+### Issue tracker
+
+GitHub Issues on SrinivasJoshi/spell-sprint, via the `gh` CLI. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+The five default labels: needs-triage, needs-info, ready-for-agent, ready-for-human, wontfix. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: `GLOSSARY.md` and `docs/adr/` at the repo root, created only when a term or decision first needs recording. See `docs/agents/domain.md`.

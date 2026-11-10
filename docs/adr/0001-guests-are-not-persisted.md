@@ -1,0 +1,3 @@
+# Guests are not persisted; an Account is a Better Auth user
+
+A Guest exists only in the browser (a Worker-signed Guest token) and in the Rooms it visits: there is no Guest row in D1 and no Guest history, so nothing is backfilled when a Guest claims a name. Claiming a name means signing up through the starter's Better Auth, with the username as a unique column on its existing user; we rejected a separate `users` table with an `is_claimed` flag, which would have duplicated Better Auth's email, verification and sessions and filled D1 with throwaway rows.
