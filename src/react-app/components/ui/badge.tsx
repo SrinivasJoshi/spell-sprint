@@ -17,6 +17,8 @@ const badgeVariants = cva(
           "border-border text-foreground [a&]:hover:bg-accent [a&]:hover:text-accent-foreground",
         ghost: "[a&]:hover:bg-accent [a&]:hover:text-accent-foreground",
         link: "text-primary underline-offset-4 [a&]:hover:underline",
+        // project: Blacksmith's chip: pale blue pill, label-sm mono, 8px padding (leading: the base's text-xs comes later in the CSS).
+        chip: "bg-info p-2 label-sm leading-[1.2] text-info-foreground [a&]:hover:bg-info/80",
       },
     },
     defaultVariants: {

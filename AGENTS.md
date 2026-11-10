@@ -401,7 +401,9 @@ Dependencies point one way: `pages → game screens → game components → ui`,
   - `screens/`: one container per Room phase (Lobby, Countdown, Round, Reveal, Podium, Spectating). Each reads `useRoom` and composes components.
 - **`src/react-app/pages/`**: thin route components (Home, RoomPage, ChooseUsername, Profile, RoomEnded) that pick a screen. No game logic.
 - **State**: no state library. The server is authoritative: the browser's Room state is the last snapshot plus the messages since, and a reconnect replaces it with a new snapshot. Local UI state (typed letters, open dialogs) stays in the component or hook that owns it. Pages outside the Room use `api/` functions with component state.
-- **Styling**: Blacksmith (`blacksmith.sh-design.md`) through the theme variables and `// project:` variants of the shadcn components. Game components use theme tokens only, never raw hex values. Mobile first.
+- **Styling**: Blacksmith (`blacksmith.sh-design.md`) through the theme variables and `// project:` variants of the shadcn components. Game components use theme tokens only, never raw hex values (`test/scripts/blacksmith-theme.test.ts` checks). Mobile first.
+  - Colours: the design's names as `brand-*` (`bg-brand-primary`); shadcn's `primary` is the charcoal main action, `secondary` the yellow one. Type: one class per style, `headline-display`/`-lg`/`-md`/`-sm`, `body-lg`/`-md`/`-sm`, `label-lg`/`-md`/`-sm`, `code-md` (no `text-` prefix, which `cn()` would read as a colour). Radii `rounded-sm/md/lg/xl` are the design's; spacing is Tailwind's 4px grid plus `gutter` and `section`. Button `size="xl"` is the full-size CTA, Badge `variant="chip"` the chip.
+  - `/dev/theme` (dev server only) shows every token and component state.
 - **Sound and motion** react to state transitions (Round started, solved, wrong, Podium) through their hooks. Components don't trigger them directly, so either can be turned off in one place.
 
 ---

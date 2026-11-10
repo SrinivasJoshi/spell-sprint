@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { lazy, Suspense, useEffect } from "react";
 import { Routes, Route, useLocation } from "react-router-dom";
 import { TopBar } from "@/components/TopBar";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
@@ -15,6 +15,9 @@ import { AdminRoutes } from "@/admin/AdminRoutes"; // [admin-area-line]
 import { authClient } from "@/lib/auth/client";
 import { config } from "../config";
 import "./App.css";
+
+// Development only: every theme token and component state (/dev/theme). Lazy, so a production build drops it.
+const ThemeSample = import.meta.env.DEV ? lazy(() => import("@/dev/ThemeSample").then((m) => ({ default: m.ThemeSample }))) : null;
 
 function AppContent() {
 	const location = useLocation();
@@ -92,6 +95,16 @@ function AppContent() {
 				}
 			/>
 			{/* [/admin-area] */}
+			{ThemeSample && (
+				<Route
+					path="/dev/theme"
+					element={
+						<Suspense>
+							<ThemeSample />
+						</Suspense>
+					}
+				/>
+			)}
 			{/* 404 — public, so unknown URLs don't bounce through login */}
 			<Route path="*" element={<NotFound />} />
 		</Routes>

@@ -134,7 +134,8 @@ function InputGroupInput({
     <Input
       data-slot="input-group-control"
       className={cn(
-        "flex-1 rounded-none border-0 bg-transparent shadow-none focus-visible:ring-0 dark:bg-transparent",
+        // project: h-full, as Input's own height (h-14) is taller than the group's.
+        "h-full flex-1 rounded-none border-0 bg-transparent shadow-none focus-visible:ring-0 dark:bg-transparent",
         className
       )}
       {...props}
