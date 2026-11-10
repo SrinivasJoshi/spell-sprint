@@ -386,6 +386,24 @@ Projects built on this starter should edit few starter files so later upstream p
 > Developers: Add project-specific instructions below as the app evolves.
 > Keep this section updated with domain models, business logic, and conventions.
 
+### SpellSprint
+Vocabulary: `GLOSSARY.md` (Room, Match, Round, Seat, Blanks, Guest, Account, ...). Decisions: `docs/adr/`. Spec: GitHub issue #3.
+
+### Frontend architecture
+Dependencies point one way: `pages → game screens → game components → ui`, and only `api/` talks to the server.
+
+- **`src/shared/`**: the Room protocol (every WebSocket message type) and the API request/response types, written once and imported by both the Worker and the browser. Never redeclare a message shape on one side.
+- **`src/react-app/api/`**: the only code that calls the server. One module per resource (`rooms`, `guest`, `public-rooms`, `profile`, ...) exporting typed functions built on `http()`, plus the Room socket client. Components never call `http()`, `fetch` or `new WebSocket` themselves. Errors follow the starter's HTTP layer: functions don't catch or toast; they list a status in `handles` only when the caller has a real alternative, and turn it into a typed result.
+- **`src/react-app/game/`**: the game feature.
+  - `state/`: the Room as a pure reducer (`(state, serverMessage) => state`) and the Blanks model, both plain TypeScript with no React, unit-tested.
+  - `hooks/`: `useRoom(code)` (owns the socket, feeds the reducer, exposes state plus intent functions such as `guess`, `start`, `leave`), `useBlanks`, and cross-cutting `useSound` / motion hooks.
+  - `components/`: presentational pieces (Blanks, OnScreenKeyboard, RoundTimer, Countdown, RoundPicture, Roster, PlayerRow, IdentityIcon, Podium, RoomCodeShare, PublicRoomList). Props in, callbacks out; no data fetching, no socket, no global state.
+  - `screens/`: one container per Room phase (Lobby, Countdown, Round, Reveal, Podium, Spectating). Each reads `useRoom` and composes components.
+- **`src/react-app/pages/`**: thin route components (Home, RoomPage, ChooseUsername, Profile, RoomEnded) that pick a screen. No game logic.
+- **State**: no state library. The server is authoritative: the browser's Room state is the last snapshot plus the messages since, and a reconnect replaces it with a new snapshot. Local UI state (typed letters, open dialogs) stays in the component or hook that owns it. Pages outside the Room use `api/` functions with component state.
+- **Styling**: Blacksmith (`blacksmith.sh-design.md`) through the theme variables and `// project:` variants of the shadcn components. Game components use theme tokens only, never raw hex values. Mobile first.
+- **Sound and motion** react to state transitions (Round started, solved, wrong, Podium) through their hooks. Components don't trigger them directly, so either can be turned off in one place.
+
 ---
 
 *This file is read by AI coding agents. Keep it concise and actionable.*
