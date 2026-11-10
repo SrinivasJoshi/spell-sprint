@@ -22,6 +22,8 @@ import { resolveAppUrl } from "../../templates/website/src/app-url";
 import { effectiveTheme, resolveTheme, withTheme } from "../../templates/website/public/js/app-link.js";
 
 const REPO = resolve(import.meta.dirname, "..", "..");
+/** The app's Worker name, from the wrangler.toml the fixture copies: the expected workers.dev hosts derive from it. */
+const APP = /^name = "([^"]+)"/m.exec(readFileSync(join(REPO, "wrangler.toml"), "utf8"))![1];
 
 describe("hostnames", () => {
 	it("suggests a domain from an app's base URL", () => {
@@ -465,16 +467,16 @@ describe("setup:website --workers-dev", () => {
 	it("gives the site its own workers.dev address, pointing at the app's", () => {
 		const toml = read(root, "website/wrangler.toml");
 		expect(toml).not.toContain("routes");
-		expect(toml).toContain('APP_URL = "https://cloudflare-fullstack-starter-production.team.workers.dev"');
+		expect(toml).toContain(`APP_URL = "https://${APP}-production.team.workers.dev"`);
 		expect(loadWebsiteConfig(root)).toEqual({
 			dir: "website",
 			hosts: {
-				production: "cloudflare-fullstack-starter-website-production.team.workers.dev",
-				preview: "cloudflare-fullstack-starter-website-preview.team.workers.dev",
+				production: `${APP}-website-production.team.workers.dev`,
+				preview: `${APP}-website-preview.team.workers.dev`,
 			},
 			app: {
-				production: "https://cloudflare-fullstack-starter-production.team.workers.dev",
-				preview: "https://cloudflare-fullstack-starter-preview.team.workers.dev",
+				production: `https://${APP}-production.team.workers.dev`,
+				preview: `https://${APP}-preview.team.workers.dev`,
 			},
 		});
 	});
@@ -487,7 +489,7 @@ describe("setup:website --workers-dev", () => {
 		const other = fixture();
 		writeFileSync(join(other, ".env.production"), read(other, ".env.production").replace(/^APP_BASE_URL=.*$/m, "APP_BASE_URL=https://x-production.crew.workers.dev"));
 		setup(other, ["--workers-dev"]);
-		expect(loadWebsiteConfig(other)!.app.preview).toBe("https://cloudflare-fullstack-starter-preview.crew.workers.dev");
+		expect(loadWebsiteConfig(other)!.app.preview).toBe(`https://${APP}-preview.crew.workers.dev`);
 		rmSync(other, { recursive: true, force: true });
 	});
 

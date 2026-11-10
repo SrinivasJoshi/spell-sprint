@@ -4,6 +4,19 @@ import { cloudflareTest } from "@cloudflare/vitest-plugin";
 
 const alias = { "@": path.resolve(import.meta.dirname, "./src/react-app") };
 
+// Worker tests are hermetic: wrangler would otherwise load the developer's .env.local into them (an empty
+// BETTER_AUTH_SECRET, Google credentials, DEMO_MODE, a dev-server port...), so a suite that passes on one
+// machine fails on another. Every variable and secret the Worker reads in a test is pinned here instead;
+// a new secret gets a fixed test value in TEST_BINDINGS.
+process.env.CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV = "false";
+const TEST_BINDINGS = {
+	ENVIRONMENT: "test",
+	APP_BASE_URL: "http://localhost:5173",
+	BETTER_AUTH_SECRET: "test-better-auth-secret-0123456789abcdef",
+	CLI_API_KEY: "test-cli-key",
+	GUEST_TOKEN_SECRET: "test-guest-token-secret",
+};
+
 // Three projects:
 //  - worker:   runs inside workerd with the real wrangler.toml bindings (D1, Durable Objects)
 //  - cross-db: runs in Node against PostgreSQL (PGlite always; real servers when TEST_*_URL is set)
@@ -30,9 +43,7 @@ export default defineConfig({
 						miniflare: {
 							// Extra empty D1 databases for isolated migration tests.
 							d1Databases: ["DB2", "DB3"],
-							// Pinned: wrangler also loads .env.local, whose APP_BASE_URL follows the dev server's port,
-							// and whose DEMO_MODE (a project showing a demo locally) would turn every write test into a refusal.
-							bindings: { ENVIRONMENT: "test", CLI_API_KEY: "test-cli-key", APP_BASE_URL: "http://localhost:5173", DEMO_MODE: "", GUEST_TOKEN_SECRET: "test-guest-token-secret" },
+							bindings: TEST_BINDINGS,
 						},
 					}),
 				],
