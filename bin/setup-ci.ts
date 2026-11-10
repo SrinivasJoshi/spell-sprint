@@ -228,7 +228,7 @@ async function prepareEnvFile(account: Account, env: SetupEnv, workerName: strin
 	const current = existsSync(file) ? parseEnvFile(file) : {};
 	const wanted: Record<string, string> = {};
 
-	for (const key of ["BETTER_AUTH_SECRET", "CLI_API_KEY"]) {
+	for (const key of ["BETTER_AUTH_SECRET", "CLI_API_KEY", "GUEST_TOKEN_SECRET"]) {
 		if (isPlaceholder(current[key])) wanted[key] = randomSecret();
 	}
 	const urlKey = `CLI_API_URL_${env.toUpperCase()}`;

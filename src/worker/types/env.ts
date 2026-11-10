@@ -39,4 +39,11 @@ export type AppEnv = {
 	// or several, comma-separated, sharing DEMO_PASSWORD.
 	DEMO_EMAIL?: string;
 	DEMO_PASSWORD?: string;
+	// Blankrace: HMAC secret for Guest tokens (src/worker/lib/guest-token.ts).
+	// Required in preview/production; local and tests fall back to a dev secret.
+	GUEST_TOKEN_SECRET?: string;
+	// The Room Durable Object namespace (src/worker/rooms/room.ts), one object per Room code.
+	ROOM: DurableObjectNamespace<import("../rooms/room").Room>;
+	// Workers Rate Limiting for POST /api/rooms, keyed by IP. See wrangler.toml.
+	ROOM_CREATE_RATE_LIMITER?: RateLimit;
 };

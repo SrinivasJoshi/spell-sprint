@@ -4,6 +4,7 @@ import { TopBar } from "@/components/TopBar";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
 import { Home } from "@/pages/Home";
 import { NotFound } from "@/pages/NotFound";
+import { RoomPage } from "@/pages/RoomPage";
 import { Profile } from "@/pages/Profile";
 import { SignUp } from "@/pages/auth/SignUp";
 import { VerifyEmail } from "@/pages/auth/VerifyEmail";
@@ -50,21 +51,11 @@ function AppContent() {
 			<Route path="/reset-password/:token" element={<ResetPassword />} />
 			<Route path="/auth/reauth-complete" element={<ReauthComplete />} />
 
+			{/* Blankrace: public, played as a Guest; the TopBar only for someone signed in */}
+			<Route path="/" element={shouldShowTopBar ? <TopBar><Home /></TopBar> : <Home />} />
+			<Route path="/r/:code" element={shouldShowTopBar ? <TopBar><RoomPage /></TopBar> : <RoomPage />} />
+
 			{/* Protected routes with TopBar */}
-			<Route
-				path="/"
-				element={
-					<ProtectedRoute>
-						{shouldShowTopBar ? (
-							<TopBar>
-								<Home />
-							</TopBar>
-						) : (
-							<Home />
-						)}
-					</ProtectedRoute>
-				}
-			/>
 			<Route
 				path="/profile"
 				element={

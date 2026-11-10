@@ -32,7 +32,7 @@ export default defineConfig({
 							d1Databases: ["DB2", "DB3"],
 							// Pinned: wrangler also loads .env.local, whose APP_BASE_URL follows the dev server's port,
 							// and whose DEMO_MODE (a project showing a demo locally) would turn every write test into a refusal.
-							bindings: { ENVIRONMENT: "test", CLI_API_KEY: "test-cli-key", APP_BASE_URL: "http://localhost:5173", DEMO_MODE: "" },
+							bindings: { ENVIRONMENT: "test", CLI_API_KEY: "test-cli-key", APP_BASE_URL: "http://localhost:5173", DEMO_MODE: "", GUEST_TOKEN_SECRET: "test-guest-token-secret" },
 						},
 					}),
 				],

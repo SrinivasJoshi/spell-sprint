@@ -16,6 +16,8 @@ import { isRevokingPath, isSignInPath, isSignOutPath, recordFailedSignIn, record
 import { maintenanceMiddleware } from "./middleware/maintenance";
 import { versionMiddleware } from "./middleware/version";
 import { clientErrors } from "./routes/client-errors";
+import { guest } from "./routes/guest";
+import { rooms } from "./routes/rooms";
 import { demo, demoMiddleware } from "./middleware/demo";
 import { AppError, errorResponse, failForAuthClient } from "./lib/errors";
 import { CLIENT_ERRORS_PATH } from "../shared/http-contract";
@@ -176,10 +178,13 @@ app.route("/api/cli", cli);
 app.route(CLIENT_ERRORS_PATH, clientErrors);
 app.route("/api/demo", demo);
 app.route("/api/admin", admin); // [admin-area-line]
+app.route("/api/guest", guest);
+app.route("/api/rooms", rooms);
 app.route("/api/profile/sessions", sessions);
 app.route("/api", profile);
 
 // Durable Object classes must be exported from the Worker entry.
+export { Room } from "./rooms/room";
 
 /** The Hono app, for tests and anything that wants `app.request()`. */
 export { app };
