@@ -408,6 +408,14 @@ Dependencies point one way: `pages → game screens → game components → ui`,
   - `/dev/theme` (dev server only) shows every token and component state.
 - **Sound and motion** react to state transitions (Round started, solved, wrong, Podium) through their hooks. Components don't trigger them directly, so either can be turned off in one place.
 
+### Tests
+Seams are fixed by spec #3, *Testing Decisions*; Room behaviour is tested only from outside, through HTTP and the Room WebSocket.
+
+- **Blankrace's Worker tests live in `test/game/`**, one file per feature (`guest`, `rooms`, ...); `npm run test:game` runs them. The starter's own tests stay where they are in `test/`, so upstream pulls stay clean.
+- **Build on `test/game/support/`**: `http.ts` (`issueGuest`, `createRoom`, `requestRoom`, `post`) and `room-socket.ts` (`openRoomSocket`: a fake browser with `next(type)` / `got(type)`). Extend these when a feature needs a new client action, so every test speaks to the Worker the same way.
+- **Rate limits count per IP across the whole run**: anything that creates Rooms uses a `freshIp()` (the helpers do by default); only a test about the limit reuses one.
+- **Worker tests are hermetic**: they never read `.env.local`. A new variable or secret the Worker reads gets a fixed value in `TEST_BINDINGS` (`vitest.config.ts`).
+
 ---
 
 *This file is read by AI coding agents. Keep it concise and actionable.*
