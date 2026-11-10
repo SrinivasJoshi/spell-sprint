@@ -2,14 +2,20 @@ import { Link, useParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { useGuest } from "@/game/hooks/useGuest";
-import { useRoom } from "@/game/hooks/useRoom";
+import { useRoom, type UseRoom } from "@/game/hooks/useRoom";
+import { CountdownScreen } from "@/game/screens/CountdownScreen";
 import { Lobby } from "@/game/screens/Lobby";
+import { MatchOverScreen } from "@/game/screens/MatchOverScreen";
+import { RevealScreen } from "@/game/screens/RevealScreen";
+import { RoundScreen } from "@/game/screens/RoundScreen";
+import type { InRoom } from "@/game/state/room";
 
-/** `/r/:code`: connects as this browser's Guest and shows the Room. */
+/** `/r/:code`: connects as this browser's Guest and shows the Room's current screen. */
 export function RoomPage() {
 	const code = (useParams().code ?? "").toUpperCase();
 	const guest = useGuest();
-	const state = useRoom(code, guest?.token);
+	const room = useRoom(code, guest?.token);
+	const { state } = room;
 	const failed = guest === null;
 
 	return (
@@ -19,7 +25,7 @@ export function RoomPage() {
 					<Spinner />
 				</div>
 			)}
-			{state.status === "in-room" && <Lobby room={state.room} meId={guest?.guest.id} />}
+			{state.status === "in-room" && <InRoomScreen state={state} meId={guest?.guest.id} room={room} />}
 			{(failed || state.status === "refused" || state.status === "disconnected") && (
 				<div className="flex flex-1 flex-col items-center justify-center gap-4 text-center">
 					<p className="body-lg text-foreground">{state.status === "refused" ? state.message : failed ? "We couldn't get you into the Room." : "The connection to the Room was lost."}</p>
@@ -30,4 +36,25 @@ export function RoomPage() {
 			)}
 		</main>
 	);
+}
+
+function InRoomScreen({ state, meId, room }: { state: InRoom; meId?: string; room: UseRoom }) {
+	const { match } = state;
+	const myTotal = (meId && state.scores[meId]) || 0;
+	if (!match) {
+		if (state.room.phase === "lobby") return <Lobby room={state.room} meId={meId} notice={state.notice} onStart={room.start} />;
+		if (state.room.phase === "over") return <MatchOverScreen myTotal={myTotal} />;
+		// Joined mid-Match: catching up comes with reconnecting (#11).
+		return <p className="body-md m-auto text-muted-foreground">A Match is under way.</p>;
+	}
+	switch (match.step) {
+		case "countdown":
+			return <CountdownScreen round={match.round} ms={match.ms} />;
+		case "round":
+			return <RoundScreen key={match.round} {...match} answer={state.guess} onGuess={room.guess} />;
+		case "reveal":
+			return <RevealScreen round={match.round} word={match.word} myPoints={(meId && match.points[meId]) || 0} myTotal={myTotal} nextPictureUrl={match.nextPictureUrl} />;
+		case "over":
+			return <MatchOverScreen myTotal={myTotal} />;
+	}
 }

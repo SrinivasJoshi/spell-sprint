@@ -33,13 +33,60 @@ export const roomSocketPath = (code: string, token: string) => `/api/rooms/${cod
 
 export type RosterEntry = { id: string; name: string; identity: "guest" };
 
-export type RoomSnapshot = { code: string; kind: RoomKind; roster: RosterEntry[] };
+/** Where the Room is in its Match cycle. */
+export type RoomPhase = "lobby" | "playing" | "over";
+
+export type RoomSnapshot = { code: string; kind: RoomKind; roster: RosterEntry[]; phase: RoomPhase };
 
 export type RefusalReason = "bad_identity" | "not_found" | "solo";
+
+/** A Match is exactly this many Rounds (spec #3). */
+export const ROUNDS_PER_MATCH = 5;
+export const COUNTDOWN_MS = 3_000;
+export const ROUND_TIME_MS = 15_000;
+export const REVEAL_MS = 5_000;
+
+/**
+ * One Blank. Typed slots are filled by the Player; given slots (Hint Letters,
+ * separators) arrive with their character and the cursor skips them.
+ */
+export type Slot = { kind: "typed" } | { kind: "given"; char: string };
+
+/** Points for a correct guess: 50, plus up to 50 for the time left, measured on the server. */
+export function roundPoints(timeLeftMs: number, timeLimitMs = ROUND_TIME_MS): number {
+	const left = Math.min(Math.max(timeLeftMs, 0), timeLimitMs);
+	return 50 + Math.floor((50 * left) / timeLimitMs);
+}
+
+/** Points per Player id. */
+export type Scores = Record<string, number>;
+
+/** Why the Room turned down something a browser asked for; the socket stays open. */
+export type RejectionReason = "not_host" | "in_progress" | "no_words";
+
+/** A Round as its start announces it. Never carries the word. */
+export type RoundStart = { round: number; rounds: number; pictureUrl: string; timeLimitMs: number; slots: Slot[] };
+
+/** A Round's end: the word, this Round's points, the totals, and the next picture to load ahead. */
+export type RoundEnd = { round: number; word: string; points: Scores; scores: Scores; nextPictureUrl: string | null; ms: number };
+
+/** What a browser sends to its Room. */
+export type ClientMessage = { type: "start" } | { type: "guess"; guess: string };
 
 /** Close code a Room uses after sending a refusal (application range 4000-4999). */
 export const ROOM_REFUSED_CLOSE_CODE = 4403;
 
 export type ServerMessage =
 	| { type: "room"; room: RoomSnapshot }
-	| { type: "refused"; reason: RefusalReason; message: string };
+	| { type: "refused"; reason: RefusalReason; message: string }
+	| { type: "rejected"; reason: RejectionReason; message: string }
+	/** A Round's countdown has begun; its picture appears after `ms`. */
+	| { type: "countdown"; round: number; ms: number }
+	| ({ type: "round" } & RoundStart)
+	/** To the guesser only. */
+	| { type: "guess-result"; result: "correct"; points: number }
+	| { type: "guess-result"; result: "wrong" }
+	/** To everyone: who has solved the current Round, never the word. */
+	| { type: "solved"; playerId: string }
+	| ({ type: "round-end" } & RoundEnd)
+	| { type: "match-over"; scores: Scores };

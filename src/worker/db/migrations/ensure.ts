@@ -54,7 +54,8 @@ async function columnExists(
 	return Number(rows[0]?.c ?? 0) > 0;
 }
 
-async function indexExists(db: Kysely<any>, kind: DatabaseKind, table: string, index: string): Promise<boolean> {
+/** Whether an index exists; for an expression index, which `ensureIndex` can't build. */
+export async function indexExists(db: Kysely<any>, kind: DatabaseKind, table: string, index: string): Promise<boolean> {
 	if (kind === "sqlite") {
 		const { rows } = await sql<{ name: string }>`
 			select name from sqlite_master where type = 'index' and name = ${index}

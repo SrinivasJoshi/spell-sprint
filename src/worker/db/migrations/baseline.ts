@@ -2,6 +2,7 @@ import type { Kysely } from "kysely";
 import { columnTypes } from "./columns";
 import type { DatabaseKind } from "../index";
 import type { Baseline } from "./types";
+import { createWordsTable } from "./incremental/0009_words";
 
 /**
  * Final-format schema in one step, used for NEW databases so they do not replay history.
@@ -21,6 +22,7 @@ export function createBaseline(kind: DatabaseKind): Baseline {
 			"0006_login_event_kind",
 			"0007_user_stats_and_log_detail",
 			"0008_session_revocations",
+			"0009_words",
 		],
 		async up(db: Kysely<unknown>) {
 			await db.schema
@@ -129,6 +131,9 @@ export function createBaseline(kind: DatabaseKind): Baseline {
 			await db.schema.createIndex("idx_session_revocations_user").on("session_revocations").column("user_id").execute();
 			await db.schema.createIndex("idx_verifications_identifier").on("verifications").column("identifier").execute();
 			await db.schema.createIndex("idx_users_role").on("users").column("role").execute();
+
+			// Blankrace's Catalogue. See 0009_words.
+			await createWordsTable(db, kind);
 		},
 	};
 }

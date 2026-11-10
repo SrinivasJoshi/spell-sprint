@@ -8,6 +8,7 @@ import { credentialAccountIds } from "./incremental/0005_credential_account_ids"
 import { loginEventKind } from "./incremental/0006_login_event_kind";
 import { userStatsAndLogDetail } from "./incremental/0007_user_stats_and_log_detail";
 import { sessionRevocations } from "./incremental/0008_session_revocations";
+import { words } from "./incremental/0009_words";
 import type { MigrationDef } from "./types";
 
 /**
@@ -25,6 +26,7 @@ export function createMigrations(kind: DatabaseKind): Record<string, MigrationDe
 		"0006_login_event_kind": loginEventKind(kind),
 		"0007_user_stats_and_log_detail": userStatsAndLogDetail(kind),
 		"0008_session_revocations": sessionRevocations(kind),
+		"0009_words": words(kind),
 	};
 }
 

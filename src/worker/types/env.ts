@@ -46,4 +46,6 @@ export type AppEnv = {
 	ROOM: DurableObjectNamespace<import("../rooms/room").Room>;
 	// Workers Rate Limiting for POST /api/rooms, keyed by IP. See wrangler.toml.
 	ROOM_CREATE_RATE_LIMITER?: RateLimit;
+	// The Catalogue's pictures, under random keys (src/worker/routes/pictures.ts).
+	PICTURES: R2Bucket;
 };

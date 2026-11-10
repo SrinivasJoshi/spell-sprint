@@ -18,6 +18,7 @@ import { versionMiddleware } from "./middleware/version";
 import { clientErrors } from "./routes/client-errors";
 import { guest } from "./routes/guest";
 import { rooms } from "./routes/rooms";
+import { pictures } from "./routes/pictures";
 import { demo, demoMiddleware } from "./middleware/demo";
 import { AppError, errorResponse, failForAuthClient } from "./lib/errors";
 import { CLIENT_ERRORS_PATH } from "../shared/http-contract";
@@ -180,6 +181,7 @@ app.route("/api/demo", demo);
 app.route("/api/admin", admin); // [admin-area-line]
 app.route("/api/guest", guest);
 app.route("/api/rooms", rooms);
+app.route("/api/pictures", pictures);
 app.route("/api/profile/sessions", sessions);
 app.route("/api", profile);
 

@@ -1,6 +1,7 @@
 import type { Kysely } from "kysely";
 import type { Database } from "../../types/database";
 import type { DatabaseKind } from "../index";
+import { testCatalogue } from "./test-catalogue";
 
 export type Seed = (db: Kysely<Database>, ctx: { kind: DatabaseKind }) => Promise<void>;
 
@@ -13,4 +14,4 @@ export type Seed = (db: Kysely<Database>, ctx: { kind: DatabaseKind }) => Promis
  *
  * See docs/DATABASES.md (Seeds) for an idempotent example.
  */
-export const seeds: Record<string, Seed> = {};
+export const seeds: Record<string, Seed> = { "test-catalogue": testCatalogue };

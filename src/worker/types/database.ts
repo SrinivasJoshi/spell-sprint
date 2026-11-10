@@ -108,8 +108,22 @@ export interface AuthLogDatabase {
   };
 }
 
+/** Blankrace's tables. See `src/worker/db/migrations/incremental/0009_words.ts`. */
+export interface GameDatabase {
+  words: {
+    id: string;
+    spelling: string;
+    difficulty: "easy" | "medium" | "hard";
+    /** JSON array of 0-based positions of the Hint Letters; hard Words only. */
+    hint_positions: string | null;
+    /** The picture's R2 key: random, never derived from the spelling. */
+    picture_key: string;
+    created_at: Timestamp;
+  };
+}
+
 /**
  * Full schema seen by Kysely. Add your application tables here (or in an
  * `AppDatabase` interface that this one extends), keeping auth tables as is.
  */
-export interface Database extends AuthDatabase, AuthLogDatabase {}
+export interface Database extends AuthDatabase, AuthLogDatabase, GameDatabase {}

@@ -50,11 +50,12 @@ export async function openRoomSocket(code: string, token: string): Promise<RoomS
 		},
 		got: (type) => received.some((m) => m.type === type),
 		async next(type, where = () => true, timeoutMs = 2000) {
-			const deadline = Date.now() + timeoutMs;
+			// performance.now(), not Date.now(): tests may freeze Date to move the Room's clock.
+			const deadline = performance.now() + timeoutMs;
 			for (;;) {
 				const found = find(type, where);
 				if (found) return found;
-				const left = deadline - Date.now();
+				const left = deadline - performance.now();
 				if (left <= 0 || closed) throw new Error(`no "${type}" message; received ${JSON.stringify(received)}`);
 				await new Promise<void>((resolve) => {
 					const done = () => {
