@@ -2,20 +2,10 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { COUNTDOWN_MS, ROUND_TIME_MS } from "../../src/shared/rooms";
 import { allSpellings, seedTestCatalogue, wordFor } from "./support/catalogue";
 import { advanceRoom } from "./support/clock";
-import { createRoom, issueGuest } from "./support/http";
-import { openRoomSocket } from "./support/room-socket";
+import { playMatch, soloRoom } from "./support/match";
 
 beforeAll(seedTestCatalogue);
 afterEach(() => vi.useRealTimers());
-
-/** A Guest alone in their Solo Room, before the Match. */
-async function soloRoom() {
-	const { token, guest } = await issueGuest();
-	const code = await createRoom(token);
-	const socket = await openRoomSocket(code, token);
-	await socket.next("room");
-	return { code, socket, guest };
-}
 
 /** A Solo Room whose Match has reached Round 1, with the server's clock frozen at the Round's start. */
 async function inRound1() {
@@ -111,32 +101,26 @@ describe("the end of a Round", () => {
 });
 
 describe("a whole Solo Match", () => {
-	it("plays 5 Rounds of different Words, totals the points, then shows the Match as over", async () => {
+	it("plays 5 Rounds of different Words, then shows the Podium with the Player's points and place", async () => {
 		const { code, socket, guest } = await soloRoom();
-		socket.send({ type: "start" });
-		expect((await socket.next("room", (m) => m.room.phase === "playing")).room.phase).toBe("playing");
-		const words = new Set<string>();
-		for (let round = 1; round <= 5; round++) {
-			await socket.next("countdown", (m) => m.round === round);
-			await advanceRoom(code);
-			const r = await socket.next("round", (m) => m.round === round);
-			words.add(wordFor(r.pictureUrl));
-			// Solve the odd Rounds only.
-			if (round % 2 === 1) {
-				socket.send({ type: "guess", guess: wordFor(r.pictureUrl) });
-				await socket.next("solved", () => socket.received.filter((m) => m.type === "solved").length === Math.ceil(round / 2));
-			}
-			await advanceRoom(code);
-			const end = await socket.next("round-end", (m) => m.round === round);
-			expect(end.nextPictureUrl === null).toBe(round === 5);
-			await advanceRoom(code);
-		}
-		expect(words.size).toBe(5);
-		const over = await socket.next("match-over");
+		// Solve the odd Rounds only.
+		const { words, podium } = await playMatch(code, socket, (round) => round % 2 === 1);
+		expect(socket.received.some((m) => m.type === "room" && m.room.phase === "playing")).toBe(true);
+		expect(new Set(words).size).toBe(5);
 		const total = socket.received.reduce((sum, m) => (m.type === "guess-result" && m.result === "correct" ? sum + m.points : sum), 0);
-		expect(over.scores).toEqual({ [guest.id]: total });
 		expect(total).toBeGreaterThanOrEqual(150);
-		expect((await socket.next("room", (m) => m.room.phase === "over")).room.phase).toBe("over");
+		expect(podium).toEqual([{ playerId: guest.id, name: guest.name, points: total, place: 1 }]);
+		const over = await socket.next("room", (m) => m.room.phase === "over");
+		expect(over.room.podium).toEqual(podium);
+		socket.close();
+	});
+
+	it("starts one Match when start arrives twice at once", async () => {
+		const { socket } = await soloRoom();
+		socket.send({ type: "start" });
+		socket.send({ type: "start" });
+		expect(await socket.next("rejected")).toMatchObject({ reason: "in_progress" });
+		expect(socket.received.filter((m) => m.type === "countdown")).toHaveLength(1);
 		socket.close();
 	});
 

@@ -17,6 +17,13 @@ export const TEST_CATALOGUE = [
 	{ id: "test-word-07", spelling: "elephant", difficulty: "hard", pictureKey: "28f7b0e4d95c" },
 ] as const;
 
+/** The test Word a picture URL shows, as a Player who recognises the picture would know it (tests only). */
+export function testWordFor(pictureUrl: string): string {
+	const word = TEST_CATALOGUE.find((w) => pictureUrl.endsWith(`/${w.pictureKey}`));
+	if (!word) throw new Error(`no test Word for ${pictureUrl}`);
+	return word.spelling;
+}
+
 export const testCatalogue: Seed = async (db) => {
 	for (const word of TEST_CATALOGUE) {
 		await ignoreConflict(

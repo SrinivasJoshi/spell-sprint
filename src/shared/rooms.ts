@@ -36,7 +36,8 @@ export type RosterEntry = { id: string; name: string; identity: "guest" };
 /** Where the Room is in its Match cycle. */
 export type RoomPhase = "lobby" | "playing" | "over";
 
-export type RoomSnapshot = { code: string; kind: RoomKind; roster: RosterEntry[]; phase: RoomPhase };
+/** `podium` is there once the Match is over, so a browser arriving then can show it. */
+export type RoomSnapshot = { code: string; kind: RoomKind; roster: RosterEntry[]; phase: RoomPhase; podium?: PodiumEntry[] };
 
 export type RefusalReason = "bad_identity" | "not_found" | "solo";
 
@@ -60,6 +61,19 @@ export function roundPoints(timeLeftMs: number, timeLimitMs = ROUND_TIME_MS): nu
 
 /** Points per Player id. */
 export type Scores = Record<string, number>;
+
+/** One line of the Podium. */
+export type PodiumEntry = { playerId: string; name: string; points: number; place: number };
+
+/**
+ * The Podium of a Match: every Player, most points first. Equal points share
+ * a place and the places they take are skipped (1, 1, 3). Ties keep the
+ * order the Players are given in.
+ */
+export function podium(players: { id: string; name: string }[], scores: Scores): PodiumEntry[] {
+	const sorted = players.map((p) => ({ playerId: p.id, name: p.name, points: scores[p.id] ?? 0 })).sort((x, y) => y.points - x.points);
+	return sorted.map((e) => ({ ...e, place: 1 + sorted.filter((o) => o.points > e.points).length }));
+}
 
 /** Why the Room turned down something a browser asked for; the socket stays open. */
 export type RejectionReason = "not_host" | "in_progress" | "no_words";
@@ -89,4 +103,5 @@ export type ServerMessage =
 	/** To everyone: who has solved the current Round, never the word. */
 	| { type: "solved"; playerId: string }
 	| ({ type: "round-end" } & RoundEnd)
-	| { type: "match-over"; scores: Scores };
+	/** The Match is over: every Player of it, placed. */
+	| { type: "podium"; podium: PodiumEntry[] };

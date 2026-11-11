@@ -1,4 +1,4 @@
-import type { RoomSnapshot, RoundEnd, RoundStart, Scores, ServerMessage } from "../../../shared/rooms";
+import type { PodiumEntry, RoomSnapshot, RoundEnd, RoundStart, Scores, ServerMessage } from "../../../shared/rooms";
 
 /**
  * Where the Match stands, as far as the screens care: one step per Room
@@ -8,7 +8,7 @@ export type MatchView =
 	| { step: "countdown"; round: number; ms: number }
 	| ({ step: "round" } & RoundStart)
 	| ({ step: "reveal" } & Omit<RoundEnd, "scores">)
-	| { step: "over" };
+	| { step: "over"; podium: PodiumEntry[] };
 
 /** The answer to this browser's last guess; `n` counts answers so a hook can react to each one. */
 export type GuessAnswer = { n: number; result: "correct" | "wrong"; points?: number };
@@ -71,7 +71,7 @@ export function roomReducer(state: RoomState, event: RoomEvent): RoomState {
 				scores: event.scores,
 				match: { step: "reveal", round: event.round, word: event.word, points: event.points, ms: event.ms, nextPictureUrl: event.nextPictureUrl },
 			};
-		case "match-over":
-			return { ...state, scores: event.scores, match: { step: "over" } };
+		case "podium":
+			return { ...state, match: { step: "over", podium: event.podium } };
 	}
 }

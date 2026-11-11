@@ -5,6 +5,7 @@ import {
 	REVEAL_MS,
 	ROUND_TIME_MS,
 	ROUNDS_PER_MATCH,
+	podium,
 	roundPoints,
 	type ClientMessage,
 	type RoomKind,
@@ -22,7 +23,7 @@ import { refusedSocket, rejection } from "./refuse";
 type RoomRecord = { code: string; kind: RoomKind; creatorId: string };
 
 /** The Words of a Match. The spelling never leaves the Room before its Round ends. */
-type MatchWord = { spelling: string; pictureKey: string };
+type MatchWord = { id: string; spelling: string; pictureKey: string };
 
 /**
  * The Match in progress, kept in storage so the Room can hibernate between
@@ -31,6 +32,8 @@ type MatchWord = { spelling: string; pictureKey: string };
  */
 type MatchState = {
 	words: MatchWord[];
+	/** Who plays this Match, as they were at its start; a Player who leaves keeps their place on the Podium. */
+	players: RosterEntry[];
 	/** 1-based. */
 	round: number;
 	step: "countdown" | "round" | "reveal" | "over";
@@ -57,6 +60,8 @@ const pictureUrl = (key: string) => `/api/pictures/${key}`;
 export class Room extends DurableObject<AppEnv> {
 	private record: RoomRecord | undefined;
 	private match: MatchState | undefined;
+	/** A start is drawing its Words. D1 is not storage, so the input gate lets another start in meanwhile. */
+	private starting = false;
 
 	private async load(): Promise<RoomRecord | undefined> {
 		this.record ??= await this.ctx.storage.get<RoomRecord>("room");
@@ -127,25 +132,29 @@ export class Room extends DurableObject<AppEnv> {
 		else if (match.step === "reveal") await this.afterReveal(match);
 	}
 
-	/** The Host starts a Match: 5 Words drawn at random, then Round 1's countdown. */
+	/** The Host starts a Match, the first or another from the Podium: 5 Words drawn at random, then Round 1's countdown. */
 	private async start(ws: WebSocket, person: RosterEntry): Promise<void> {
 		const room = await this.load();
 		if (!room) return;
 		if (person.id !== room.creatorId) return this.send(ws, rejection("not_host"));
-		if (await this.loadMatch()) return this.send(ws, rejection("in_progress"));
+		const current = await this.loadMatch();
+		if (this.starting || (current && current.step !== "over")) return this.send(ws, rejection("in_progress"));
 
-		const rows = await createDb(this.env)
-			.selectFrom("words")
-			.select(["spelling", "picture_key"])
-			.orderBy(sql`random()`)
-			.limit(ROUNDS_PER_MATCH)
-			.execute();
-		if (rows.length < ROUNDS_PER_MATCH) return this.send(ws, rejection("no_words"));
+		this.starting = true;
+		let words: MatchWord[] | undefined;
+		try {
+			words = await this.drawWords();
+		} finally {
+			this.starting = false;
+		}
+		if (!words) return this.send(ws, rejection("no_words"));
 
+		const players = this.people();
 		const scores: Scores = {};
-		for (const p of this.people()) scores[p.id] = 0;
+		for (const p of players) scores[p.id] = 0;
 		const match: MatchState = {
-			words: rows.map((r) => ({ spelling: r.spelling, pictureKey: r.picture_key })),
+			words,
+			players,
 			round: 1,
 			step: "countdown",
 			roundStartedAt: 0,
@@ -155,6 +164,39 @@ export class Room extends DurableObject<AppEnv> {
 		await this.saveMatch(match);
 		this.broadcast({ type: "room", room: await this.snapshot(room) });
 		await this.countdown(match);
+	}
+
+	/**
+	 * A Match's Words, at random among those this Room hasn't used yet. When
+	 * fewer are left than a Match needs, it takes them all and the Catalogue
+	 * starts over for the rest. Undefined when the Catalogue is too small.
+	 */
+	private async drawWords(): Promise<MatchWord[] | undefined> {
+		const used = (await this.ctx.storage.get<string[]>("used-words")) ?? [];
+		const fresh = await this.randomWords(used, ROUNDS_PER_MATCH);
+		let words = fresh;
+		let usedNow = [...used, ...fresh.map((w) => w.id)];
+		if (fresh.length < ROUNDS_PER_MATCH) {
+			const refill = await this.randomWords(fresh.map((w) => w.id), ROUNDS_PER_MATCH - fresh.length);
+			words = [...fresh, ...refill];
+			// The new round of the Catalogue starts with this whole Match, so none of its Words comes straight back.
+			usedNow = words.map((w) => w.id);
+		}
+		if (words.length < ROUNDS_PER_MATCH) return undefined;
+		await this.ctx.storage.put("used-words", usedNow);
+		return words;
+	}
+
+	private async randomWords(excluding: string[], count: number): Promise<MatchWord[]> {
+		const rows = await createDb(this.env)
+			.selectFrom("words")
+			.select(["id", "spelling", "picture_key"])
+			// One parameter however many are excluded: D1 allows only 100 per statement.
+			.where(sql<boolean>`id not in (select value from json_each(${JSON.stringify(excluding)}))`)
+			.orderBy(sql`random()`)
+			.limit(count)
+			.execute();
+		return rows.map((r) => ({ id: r.id, spelling: r.spelling, pictureKey: r.picture_key }));
 	}
 
 	private async countdown(match: MatchState): Promise<void> {
@@ -230,7 +272,7 @@ export class Room extends DurableObject<AppEnv> {
 			return this.countdown(next);
 		}
 		await this.saveMatch({ ...match, step: "over" });
-		this.broadcast({ type: "match-over", scores: match.scores });
+		this.broadcast({ type: "podium", podium: podium(match.players, match.scores) });
 		const room = await this.load();
 		if (room) this.broadcast({ type: "room", room: await this.snapshot(room) });
 	}
@@ -252,7 +294,10 @@ export class Room extends DurableObject<AppEnv> {
 	}
 
 	private async snapshot(room: RoomRecord, leaving?: WebSocket): Promise<RoomSnapshot> {
-		return { code: room.code, kind: room.kind, roster: this.people(leaving), phase: await this.phase() };
+		const match = await this.loadMatch();
+		const snapshot: RoomSnapshot = { code: room.code, kind: room.kind, roster: this.people(leaving), phase: await this.phase() };
+		if (match?.step === "over") snapshot.podium = podium(match.players, match.scores);
+		return snapshot;
 	}
 
 	private send(ws: WebSocket, message: ServerMessage): void {

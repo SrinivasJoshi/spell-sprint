@@ -1,6 +1,6 @@
 import { env } from "cloudflare:workers";
 import { createDb } from "../../../src/worker/db";
-import { TEST_CATALOGUE, testCatalogue } from "../../../src/worker/db/seeds/test-catalogue";
+import { TEST_CATALOGUE, testCatalogue, testWordFor } from "../../../src/worker/db/seeds/test-catalogue";
 
 /** Stand-in picture bytes, one per Word: what the picture route must serve back. */
 export const pictureBytes = (key: string) => new TextEncoder().encode(`picture ${key}`);
@@ -12,10 +12,6 @@ export async function seedTestCatalogue(): Promise<void> {
 }
 
 /** The Word a picture URL shows, as a Player who recognises the picture would know it. */
-export function wordFor(pictureUrl: string): string {
-	const word = TEST_CATALOGUE.find((w) => pictureUrl.endsWith(`/${w.pictureKey}`));
-	if (!word) throw new Error(`no test Word for ${pictureUrl}`);
-	return word.spelling;
-}
+export const wordFor = testWordFor;
 
 export const allSpellings = () => TEST_CATALOGUE.map((w) => w.spelling);

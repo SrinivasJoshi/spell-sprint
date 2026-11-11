@@ -5,7 +5,7 @@ import { useGuest } from "@/game/hooks/useGuest";
 import { useRoom, type UseRoom } from "@/game/hooks/useRoom";
 import { CountdownScreen } from "@/game/screens/CountdownScreen";
 import { Lobby } from "@/game/screens/Lobby";
-import { MatchOverScreen } from "@/game/screens/MatchOverScreen";
+import { PodiumScreen } from "@/game/screens/PodiumScreen";
 import { RevealScreen } from "@/game/screens/RevealScreen";
 import { RoundScreen } from "@/game/screens/RoundScreen";
 import type { InRoom } from "@/game/state/room";
@@ -41,9 +41,11 @@ export function RoomPage() {
 function InRoomScreen({ state, meId, room }: { state: InRoom; meId?: string; room: UseRoom }) {
 	const { match } = state;
 	const myTotal = (meId && state.scores[meId]) || 0;
+	// At the Podium: the message's, or the snapshot's for a browser that arrived after it.
+	const podium = match?.step === "over" ? match.podium : !match ? state.room.podium : undefined;
+	if (podium) return <PodiumScreen podium={podium} kind={state.room.kind} meId={meId} notice={state.notice} onPlayAgain={room.start} />;
 	if (!match) {
 		if (state.room.phase === "lobby") return <Lobby room={state.room} meId={meId} notice={state.notice} onStart={room.start} />;
-		if (state.room.phase === "over") return <MatchOverScreen myTotal={myTotal} />;
 		// Joined mid-Match: catching up comes with reconnecting (#11).
 		return <p className="body-md m-auto text-muted-foreground">A Match is under way.</p>;
 	}
@@ -54,7 +56,5 @@ function InRoomScreen({ state, meId, room }: { state: InRoom; meId?: string; roo
 			return <RoundScreen key={match.round} {...match} answer={state.guess} onGuess={room.guess} />;
 		case "reveal":
 			return <RevealScreen round={match.round} word={match.word} myPoints={(meId && match.points[meId]) || 0} myTotal={myTotal} nextPictureUrl={match.nextPictureUrl} />;
-		case "over":
-			return <MatchOverScreen myTotal={myTotal} />;
 	}
 }
