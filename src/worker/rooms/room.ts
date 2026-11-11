@@ -17,6 +17,7 @@ import {
 	type Slot,
 } from "../../shared/rooms";
 import { createDb } from "../db";
+import { decodeHintPositions } from "../db/hint-positions";
 import type { AppEnv } from "../types/env";
 import { refusedSocket, rejection } from "./refuse";
 
@@ -219,7 +220,7 @@ export class Room extends DurableObject<AppEnv> {
 			id: r.id,
 			spelling: r.spelling,
 			pictureKey: r.picture_key,
-			hintPositions: r.hint_positions ? (JSON.parse(r.hint_positions) as number[]) : undefined,
+			hintPositions: decodeHintPositions(r.hint_positions),
 		}));
 	}
 

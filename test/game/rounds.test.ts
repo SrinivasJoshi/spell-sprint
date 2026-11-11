@@ -53,6 +53,22 @@ describe("Hint Letters", () => {
 		}
 		socket.close();
 	});
+	it("cost no points: a hard Word solved at once scores the full 100, like any other", async () => {
+		const { code, socket } = await soloRoom();
+		vi.useFakeTimers({ toFake: ["Date"] });
+		const first = await playMatch(code, socket, () => true);
+		const second = await playMatch(code, socket, () => true);
+		const points = new Map<string, number>();
+		let word = "";
+		for (const m of [...first.messages, ...second.messages]) {
+			if (m.type === "round") word = wordFor(m.pictureUrl);
+			if (m.type === "guess-result" && m.result === "correct") points.set(word, m.points);
+		}
+		expect(points.get("umbrella")).toBe(100);
+		expect(points.get("elephant")).toBe(100);
+		expect(points.get("apple")).toBe(100);
+		socket.close();
+	});
 });
 
 describe("guessing", () => {

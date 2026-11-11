@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { sql } from "kysely";
 import { hintProblems, isDifficulty, isPictureKey, isSpelling, type CatalogueSpellingsResponse, type NewWord, type NewWordResponse } from "../../shared/catalogue";
 import { createDb, dbNow } from "../db";
+import { encodeHintPositions } from "../db/hint-positions";
 import { AppError } from "../lib/errors";
 import type { AppBindings } from "../types/context";
 import { cliAuthMiddleware } from "./cli";
@@ -60,7 +61,7 @@ cliCatalogue.post("/words", async (c) => {
 	try {
 		await db
 			.insertInto("words")
-			.values({ id, spelling, difficulty, hint_positions: hintPositions?.length ? JSON.stringify(hintPositions) : null, picture_key: pictureKey, created_at: dbNow() })
+			.values({ id, spelling, difficulty, hint_positions: encodeHintPositions(hintPositions), picture_key: pictureKey, created_at: dbNow() })
 			.execute();
 	} catch (error) {
 		// Another import inserted the same spelling since the check: the unique index refused this one.

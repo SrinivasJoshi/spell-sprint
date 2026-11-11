@@ -1,3 +1,4 @@
+import { encodeHintPositions } from "../hint-positions";
 import { dbNow, ignoreConflict } from "../index";
 import type { Seed } from "./index";
 
@@ -31,7 +32,7 @@ export const testCatalogue: Seed = async (db) => {
 				id: word.id,
 				spelling: word.spelling,
 				difficulty: word.difficulty,
-				hint_positions: word.hintPositions ? JSON.stringify(word.hintPositions) : null,
+				hint_positions: encodeHintPositions(word.hintPositions),
 				picture_key: word.pictureKey,
 				created_at: dbNow(),
 			}),
