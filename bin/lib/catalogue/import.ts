@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import type { Difficulty } from "../../../src/shared/catalogue";
-import { describeEntry, type CatalogueEntry, type Manifest } from "./manifest";
+import type { Environment } from "../../../src/cli/utils/db";
+import { describeEntry, importedIn, type CatalogueEntry, type Manifest } from "./manifest";
 import type { PictureFolder, PictureStore, WordStore } from "./stores";
 import { validateManifest } from "./validate";
 
@@ -25,9 +26,9 @@ type Ready = { entry: CatalogueEntry; webp: Buffer };
 const pictureKey = () => randomBytes(8).toString("hex");
 
 /** Step 1: check every pending entry against the Catalogue and the folder. */
-async function check(manifest: Manifest, deps: ImportDeps): Promise<string[]> {
+async function check(manifest: Manifest, env: Environment, deps: ImportDeps): Promise<string[]> {
 	const [spellings, sizes] = await Promise.all([deps.words.spellings(), deps.folder.sizes()]);
-	return validateManifest(manifest, spellings, sizes);
+	return validateManifest(manifest, env, spellings, sizes);
 }
 
 /** Step 2: convert every pending picture, before anything is uploaded, so a bad file writes nothing. */
@@ -57,22 +58,22 @@ async function importOne({ entry, webp }: Ready, deps: ImportDeps): Promise<stri
 }
 
 /**
- * Imports the manifest's new entries: check all, convert all, then upload and
+ * Imports the entries not yet in `env`'s Catalogue: check all, convert all, then upload and
  * insert one by one. Nothing is written unless every check and conversion
- * passes. Each imported entry gets its `wordId` (set on the manifest passed
- * in) and the manifest is saved after each one, so a run that stops halfway
+ * passes. Each imported entry gets its id under `wordId[env]` (set on the
+ * manifest passed in) and the manifest is saved after each one, so a run that stops halfway
  * resumes where it stopped.
  */
-export async function importCatalogue(manifest: Manifest, deps: ImportDeps): Promise<ImportResult> {
-	const checkErrors = await check(manifest, deps);
+export async function importCatalogue(manifest: Manifest, env: Environment, deps: ImportDeps): Promise<ImportResult> {
+	const checkErrors = await check(manifest, env, deps);
 	if (checkErrors.length) return { ok: false, errors: checkErrors };
 
-	const pending = manifest.filter((e) => !e.wordId);
+	const pending = manifest.filter((e) => !importedIn(e, env));
 	const { ready, errors } = await convertAll(pending, deps);
 	if (errors.length) return { ok: false, errors };
 
 	for (const item of ready) {
-		item.entry.wordId = await importOne(item, deps);
+		item.entry.wordId = { ...item.entry.wordId, [env]: await importOne(item, deps) };
 		await deps.save(manifest);
 		deps.log(`imported ${describeEntry(item.entry)}`);
 	}

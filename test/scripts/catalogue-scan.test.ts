@@ -21,7 +21,7 @@ describe("scanEntries", () => {
 	});
 
 	it("keeps existing entries as they are and appends only new pictures", () => {
-		const existing: CatalogueEntry[] = [{ file: "x.png", spelling: "guillotine", difficulty: "hard", hintPositions: [0], wordId: "w1" }];
+		const existing: CatalogueEntry[] = [{ file: "x.png", spelling: "guillotine", difficulty: "hard", hintPositions: [0], wordId: { local: "w1" } }];
 		expect(scanEntries(existing, ["x.png", "chandelier.png"])).toEqual([existing[0], blank("chandelier.png", "chandelier")]);
 	});
 });

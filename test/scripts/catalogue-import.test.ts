@@ -46,7 +46,7 @@ describe("importCatalogue", () => {
 		const { deps, r2, words, saved } = fakes(["a.png", "b.png"]);
 		const manifest = [entry("a.png", "scissors"), entry("b.png", "guillotine", { difficulty: "hard", hintPositions: [0] })];
 
-		const result = await importCatalogue(manifest, deps);
+		const result = await importCatalogue(manifest, "local", deps);
 
 		expect(result).toEqual({ ok: true, imported: 2 });
 		expect(words.map(({ spelling, difficulty, hintPositions }) => ({ spelling, difficulty, hintPositions }))).toEqual([
@@ -59,14 +59,14 @@ describe("importCatalogue", () => {
 		}
 		expect(new Set(words.map((w) => w.pictureKey)).size).toBe(2);
 		expect(r2.get(words[0].pictureKey)?.toString()).toBe("webp of source a.png");
-		expect(saved.at(-1)?.map((e) => e.wordId)).toEqual(["w1", "w2"]);
+		expect(saved.at(-1)?.map((e) => e.wordId)).toEqual([{ local: "w1" }, { local: "w2" }]);
 	});
 
 	it("writes nothing when any entry fails a check, and names every offender", async () => {
 		const { deps, r2, words, saved } = fakes(["a.png", "b.png"], ["Ukulele"]);
 		const manifest = [entry("a.png", "scissors"), entry("b.png", "ukulele"), entry("c.png", "bouquet")];
 
-		const result = await importCatalogue(manifest, deps);
+		const result = await importCatalogue(manifest, "local", deps);
 
 		expect(result).toEqual({
 			ok: false,
@@ -84,7 +84,7 @@ describe("importCatalogue", () => {
 			return Buffer.from("webp");
 		};
 
-		const result = await importCatalogue([entry("a.png", "scissors"), entry("b.png", "bouquet")], deps);
+		const result = await importCatalogue([entry("a.png", "scissors"), entry("b.png", "bouquet")], "local", deps);
 
 		expect(result).toEqual({ ok: false, errors: ["b.png (bouquet): could not convert the picture: corrupt"] });
 		expect(r2.size).toBe(0);
@@ -94,11 +94,22 @@ describe("importCatalogue", () => {
 	it("imports only new entries on a second run", async () => {
 		const { deps, words } = fakes(["a.png", "b.png"]);
 		const manifest = [entry("a.png", "scissors")];
-		await importCatalogue(manifest, deps);
+		await importCatalogue(manifest, "local", deps);
 
-		const second = await importCatalogue([...manifest, entry("b.png", "bouquet")], deps);
+		const second = await importCatalogue([...manifest, entry("b.png", "bouquet")], "local", deps);
 
 		expect(second).toEqual({ ok: true, imported: 1 });
 		expect(words.map((w) => w.spelling)).toEqual(["scissors", "bouquet"]);
+	});
+
+	it("records the id per environment, so an entry imported locally is still new for production", async () => {
+		const local = fakes(["a.png"]);
+		const manifest = [entry("a.png", "scissors")];
+		await importCatalogue(manifest, "local", local.deps);
+
+		const production = fakes(["a.png"]);
+		expect(await importCatalogue(manifest, "production", production.deps)).toEqual({ ok: true, imported: 1 });
+		expect(manifest[0].wordId).toEqual({ local: "w1", production: "w1" });
+		expect(await importCatalogue(manifest, "production", production.deps)).toEqual({ ok: true, imported: 0 });
 	});
 });

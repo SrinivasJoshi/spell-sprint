@@ -55,7 +55,7 @@ program
 
 		const target = { baseUrl, apiKey };
 		console.log(`Importing into ${env} (${baseUrl})`);
-		const result = await importCatalogue(readManifest(), {
+		const result = await importCatalogue(readManifest(), env, {
 			pictures: workerPictureStore(target),
 			words: workerWordStore(target),
 			folder: diskPictureFolder(PICTURES_DIR),

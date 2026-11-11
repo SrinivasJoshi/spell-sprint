@@ -1,5 +1,6 @@
 import { hintProblems, isDifficulty, isSpelling } from "../../../src/shared/catalogue";
-import { describeEntry, type CatalogueEntry, type Manifest } from "./manifest";
+import type { Environment } from "../../../src/cli/utils/db";
+import { describeEntry, importedIn, type CatalogueEntry, type Manifest } from "./manifest";
 import type { PixelSize } from "./picture";
 
 /** Each picture file in `catalogue/pictures/` and its size in pixels. */
@@ -40,13 +41,13 @@ const pictureRule: Rule = (e, { pictures }) => {
 const ENTRY_RULES: Rule[] = [spellingRule, difficultyRule, hintRule, pictureRule];
 
 /**
- * Every problem with the entries not yet imported, each naming its entry; an
+ * Every problem with the entries not yet imported into `env`, each naming its entry; an
  * empty list means the import may start. Pure: the Catalogue's spellings and
  * the pictures' sizes come in, so nothing here touches disk or network.
  * Imported entries are part of the Catalogue already and only count for
  * duplicates.
  */
-export function validateManifest(manifest: Manifest, catalogueSpellings: readonly string[], pictures: PictureSizes): string[] {
+export function validateManifest(manifest: Manifest, env: Environment, catalogueSpellings: readonly string[], pictures: PictureSizes): string[] {
 	const errors: string[] = [];
 	const inCatalogue = new Set(catalogueSpellings.map((s) => s.toLowerCase()));
 	const files = new Set<string>();
@@ -55,7 +56,7 @@ export function validateManifest(manifest: Manifest, catalogueSpellings: readonl
 		const fail = (message: string) => errors.push(`${describeEntry(e)}: ${message}`);
 		if (files.has(e.file)) fail(`picture ${e.file} is listed twice`);
 		files.add(e.file);
-		if (e.wordId) continue;
+		if (importedIn(e, env)) continue;
 		for (const rule of ENTRY_RULES) rule(e, { pictures }).forEach(fail);
 		const key = e.spelling?.toLowerCase();
 		if (!key) continue;
