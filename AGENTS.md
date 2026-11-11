@@ -12,7 +12,6 @@ The project is based on a SaaS starter template built on Cloudflare's edge platf
 - **Auth**: Better Auth (email/password with verification)
 - **Email**: pluggable adapter; Cloudflare Email Service by default (`send_email` binding)
 - **Tests**: Vitest (`@cloudflare/vitest-plugin`) for the Worker + D1; a smoke E2E suite in `e2e/`
-- **Browser checks**: use `agent-browser` (`agent-browser skills get core`) to open, drive and screenshot the running app
 
 ## Critical Architecture
 
@@ -163,7 +162,6 @@ const users = await db.selectFrom("users").selectAll().execute();
 npm run dev                         # Start dev server (logs appear in terminal)
 npm test                            # Vitest worker integration tests
 npm run test:e2e                    # Smoke E2E test (starts the dev server)
-agent-browser open <APP_BASE_URL>   # Check a change by eye in a real browser (screenshot, eval, hover, ...)
 
 # Database — migrations
 npm run db:migrate                  # Run migrations locally
