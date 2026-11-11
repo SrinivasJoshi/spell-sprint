@@ -1,4 +1,4 @@
-import type { Slot } from "../../../shared/rooms";
+import type { GuessResult, Slot } from "../../../shared/rooms";
 
 /**
  * The Blanks as the Player fills them: plain data, no React (GLOSSARY.md, Blanks).
@@ -54,8 +54,8 @@ export function backspace(blanks: Blanks): Blanks {
 	return blanks;
 }
 
-/** The Room's answer to the submitted guess. */
-export function guessResult(blanks: Blanks, result: "correct" | "wrong"): Blanks {
+/** The Room's answer to the submitted guess. A Near Miss is wrong too: the Player edits on. */
+export function guessResult(blanks: Blanks, result: GuessResult): Blanks {
 	if (blanks.status !== "checking") return blanks;
 	return result === "correct" ? { ...blanks, status: "solved" } : { ...blanks, status: "editing", wrongCount: blanks.wrongCount + 1 };
 }

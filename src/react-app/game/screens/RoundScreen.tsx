@@ -39,5 +39,6 @@ export function RoundScreen({ round, rounds, pictureUrl, timeLimitMs, slots, ans
 function statusLine(status: BlanksModel["status"], answer?: GuessAnswer): string {
 	if (status === "solved") return `Correct! +${answer?.points ?? 0}`;
 	if (status === "checking") return "Checking…";
+	if (answer?.result === "near-miss") return "Almost!";
 	return answer?.result === "wrong" ? "Not quite. Try again." : "Type the word.";
 }

@@ -14,6 +14,7 @@ import {
 	type RosterEntry,
 	type Scores,
 	type ServerMessage,
+	type Slot,
 } from "../../shared/rooms";
 import { createDb } from "../db";
 import type { AppEnv } from "../types/env";
@@ -23,7 +24,7 @@ import { refusedSocket, rejection } from "./refuse";
 type RoomRecord = { code: string; kind: RoomKind; creatorId: string };
 
 /** The Words of a Match. The spelling never leaves the Room before its Round ends. */
-type MatchWord = { id: string; spelling: string; pictureKey: string };
+type MatchWord = { id: string; spelling: string; pictureKey: string; hintPositions?: number[] };
 
 /**
  * The Match in progress, kept in storage so the Room can hibernate between
@@ -49,6 +50,24 @@ type MatchState = {
 export const ROOM_IDENTITY_HEADER = "x-room-identity";
 
 const pictureUrl = (key: string) => `/api/pictures/${key}`;
+
+/**
+ * A Word's Blanks: one slot per character, the Hint Letters given with their
+ * letter. Separators (space, hyphen), once the Catalogue has them, become given slots here too.
+ */
+function blanksFor(word: MatchWord): Slot[] {
+	const hints = new Set(word.hintPositions ?? []);
+	return [...word.spelling].map((char, i) => (hints.has(i) ? { kind: "given", char } : { kind: "typed" }));
+}
+
+/** One wrong letter, or one swap of neighbouring letters (GLOSSARY.md, Near Miss). Both lowercase. */
+function isNearMiss(guess: string, word: string): boolean {
+	if (guess.length !== word.length) return false;
+	const diff = [...word].flatMap((ch, i) => (ch === guess[i] ? [] : [i]));
+	if (diff.length === 1) return true;
+	const [a, b] = diff;
+	return diff.length === 2 && b === a + 1 && guess[a] === word[b] && guess[b] === word[a];
+}
 
 /**
  * One Room (ADR 0002): owns its WebSockets, through the Hibernation API, so an
@@ -190,13 +209,18 @@ export class Room extends DurableObject<AppEnv> {
 	private async randomWords(excluding: string[], count: number): Promise<MatchWord[]> {
 		const rows = await createDb(this.env)
 			.selectFrom("words")
-			.select(["id", "spelling", "picture_key"])
+			.select(["id", "spelling", "picture_key", "hint_positions"])
 			// One parameter however many are excluded: D1 allows only 100 per statement.
 			.where(sql<boolean>`id not in (select value from json_each(${JSON.stringify(excluding)}))`)
 			.orderBy(sql`random()`)
 			.limit(count)
 			.execute();
-		return rows.map((r) => ({ id: r.id, spelling: r.spelling, pictureKey: r.picture_key }));
+		return rows.map((r) => ({
+			id: r.id,
+			spelling: r.spelling,
+			pictureKey: r.picture_key,
+			hintPositions: r.hint_positions ? (JSON.parse(r.hint_positions) as number[]) : undefined,
+		}));
 	}
 
 	private async countdown(match: MatchState): Promise<void> {
@@ -214,8 +238,7 @@ export class Room extends DurableObject<AppEnv> {
 			rounds: next.words.length,
 			pictureUrl: pictureUrl(word.pictureKey),
 			timeLimitMs: ROUND_TIME_MS,
-			// v1: every slot is typed. Hint Letters come as given slots later.
-			slots: [...word.spelling].map(() => ({ kind: "typed" })),
+			slots: blanksFor(word),
 		});
 		await this.ctx.storage.setAlarm(next.roundStartedAt + ROUND_TIME_MS);
 	}
@@ -223,7 +246,8 @@ export class Room extends DurableObject<AppEnv> {
 	/**
 	 * Compares a guess with the word, ignoring case. Right: points from the time
 	 * left on the server's clock, input locked, everyone told who solved it.
-	 * Wrong: only the guesser is told; no penalty, no limit on attempts.
+	 * Wrong: only the guesser is told, as a Near Miss when it is one letter off;
+	 * no penalty, no limit on attempts.
 	 */
 	private async guess(person: RosterEntry, guess: string): Promise<void> {
 		const match = await this.loadMatch();
@@ -233,8 +257,10 @@ export class Room extends DurableObject<AppEnv> {
 		if (elapsed >= ROUND_TIME_MS) return this.endRound(match);
 
 		const word = match.words[match.round - 1];
-		if (guess.trim().toLowerCase() !== word.spelling.toLowerCase()) {
-			return this.sendTo(person.id, { type: "guess-result", result: "wrong" });
+		const attempt = guess.trim().toLowerCase();
+		const spelling = word.spelling.toLowerCase();
+		if (attempt !== spelling) {
+			return this.sendTo(person.id, { type: "guess-result", result: isNearMiss(attempt, spelling) ? "near-miss" : "wrong" });
 		}
 		const points = roundPoints(ROUND_TIME_MS - elapsed);
 		await this.saveMatch({

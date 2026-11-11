@@ -1,5 +1,5 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { COUNTDOWN_MS, ROUND_TIME_MS } from "../../src/shared/rooms";
+import { COUNTDOWN_MS, ROUND_TIME_MS, type Slot } from "../../src/shared/rooms";
 import { allSpellings, seedTestCatalogue, wordFor } from "./support/catalogue";
 import { advanceRoom } from "./support/clock";
 import { playMatch, soloRoom } from "./support/match";
@@ -29,10 +29,28 @@ describe("starting a Solo Match", () => {
 		const round = await socket.next("round");
 		expect(round).toMatchObject({ round: 1, rounds: 5, timeLimitMs: ROUND_TIME_MS });
 		expect(round.pictureUrl).toMatch(/^\/api\/pictures\/[0-9a-f]+$/);
-		expect(round.slots.length).toBeGreaterThan(0);
-		expect(round.slots.every((s) => s.kind === "typed")).toBe(true);
+		expect(round.slots).toHaveLength(wordFor(round.pictureUrl).length);
 		const sent = JSON.stringify(socket.received);
 		for (const spelling of allSpellings()) expect(sent).not.toContain(spelling);
+		socket.close();
+	});
+});
+
+describe("Hint Letters", () => {
+	it("hard Words start with their Hint Letters as given slots; easy and medium Words have none", async () => {
+		const { code, socket } = await soloRoom();
+		// Two Matches go through the whole 7-Word test Catalogue.
+		const first = await playMatch(code, socket);
+		const second = await playMatch(code, socket);
+		const layouts = new Map<string, Slot[]>();
+		for (const m of [...first.messages, ...second.messages]) if (m.type === "round") layouts.set(wordFor(m.pictureUrl), m.slots);
+
+		const t = { kind: "typed" };
+		expect(layouts.get("umbrella")).toEqual([t, { kind: "given", char: "m" }, t, t, t, { kind: "given", char: "l" }, t, t]);
+		expect(layouts.get("elephant")).toEqual([t, t, t, { kind: "given", char: "p" }, t, t, t, t]);
+		for (const word of ["apple", "house", "guitar", "pencil", "penguin"]) {
+			expect(layouts.get(word)).toEqual([...word].map(() => t));
+		}
 		socket.close();
 	});
 });
@@ -55,6 +73,31 @@ describe("guessing", () => {
 		const correct = await socket.next("guess-result", (m) => m.result === "correct");
 		expect(correct).toEqual({ type: "guess-result", result: "correct", points: 100 });
 		expect(socket.received.filter((m) => m.type === "guess-result" && m.result === "wrong")).toHaveLength(3);
+		socket.close();
+	});
+
+	it("answers Almost! (a Near Miss) for one wrong letter or one swap of neighbouring letters, without saying where", async () => {
+		const { socket, word } = await inRound1();
+		const last = word.length - 1;
+		const guesses = {
+			"one wrong letter": `z${word.slice(1)}`,
+			"neighbours swapped": `${word[1]}${word[0]}${word.slice(2)}`,
+			"two wrong letters": `zz${word.slice(2)}`,
+			"far letters swapped": `${word[last]}${word.slice(1, last)}${word[0]}`,
+			"a letter missing": word.slice(1),
+			"a letter extra": `${word}z`,
+		};
+		for (const guess of Object.values(guesses)) socket.send({ type: "guess", guess });
+		await socket.next("guess-result", () => socket.received.filter((m) => m.type === "guess-result").length === 6);
+		const answers = socket.received.filter((m) => m.type === "guess-result");
+		expect(Object.fromEntries(Object.keys(guesses).map((name, i) => [name, answers[i]]))).toEqual({
+			"one wrong letter": { type: "guess-result", result: "near-miss" },
+			"neighbours swapped": { type: "guess-result", result: "near-miss" },
+			"two wrong letters": { type: "guess-result", result: "wrong" },
+			"far letters swapped": { type: "guess-result", result: "wrong" },
+			"a letter missing": { type: "guess-result", result: "wrong" },
+			"a letter extra": { type: "guess-result", result: "wrong" },
+		});
 		socket.close();
 	});
 

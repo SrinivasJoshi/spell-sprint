@@ -84,6 +84,9 @@ export type RoundStart = { round: number; rounds: number; pictureUrl: string; ti
 /** A Round's end: the word, this Round's points, the totals, and the next picture to load ahead. */
 export type RoundEnd = { round: number; word: string; points: Scores; scores: Scores; nextPictureUrl: string | null; ms: number };
 
+/** The Room's answer to a guess, to the guesser only. */
+export type GuessResult = "correct" | "near-miss" | "wrong";
+
 /** What a browser sends to its Room. */
 export type ClientMessage = { type: "start" } | { type: "guess"; guess: string };
 
@@ -99,7 +102,8 @@ export type ServerMessage =
 	| ({ type: "round" } & RoundStart)
 	/** To the guesser only. */
 	| { type: "guess-result"; result: "correct"; points: number }
-	| { type: "guess-result"; result: "wrong" }
+	/** `near-miss` (Almost!): one wrong letter, or two neighbouring letters swapped. Never says where. */
+	| { type: "guess-result"; result: Exclude<GuessResult, "correct"> }
 	/** To everyone: who has solved the current Round, never the word. */
 	| { type: "solved"; playerId: string }
 	| ({ type: "round-end" } & RoundEnd)

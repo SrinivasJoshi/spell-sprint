@@ -1,4 +1,4 @@
-import type { PodiumEntry, RoomSnapshot, RoundEnd, RoundStart, Scores, ServerMessage } from "../../../shared/rooms";
+import type { GuessResult, PodiumEntry, RoomSnapshot, RoundEnd, RoundStart, Scores, ServerMessage } from "../../../shared/rooms";
 
 /**
  * Where the Match stands, as far as the screens care: one step per Room
@@ -11,7 +11,7 @@ export type MatchView =
 	| { step: "over"; podium: PodiumEntry[] };
 
 /** The answer to this browser's last guess; `n` counts answers so a hook can react to each one. */
-export type GuessAnswer = { n: number; result: "correct" | "wrong"; points?: number };
+export type GuessAnswer = { n: number; result: GuessResult; points?: number };
 
 export type InRoom = {
 	status: "in-room";

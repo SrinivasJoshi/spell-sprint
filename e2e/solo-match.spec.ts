@@ -24,7 +24,9 @@ test("create a Solo Room, play 5 Rounds, see the Podium", async ({ page }) => {
 	for (let round = 1; round <= ROUNDS_PER_MATCH; round++) {
 		await expect(page.getByText(`Round ${round} of ${ROUNDS_PER_MATCH}`)).toBeVisible({ timeout: 30_000 });
 		const src = await page.getByRole("img", { name: "What is this?" }).getAttribute("src");
-		await page.keyboard.type(testWordFor(src!));
+		// Type only the typed slots: Hint Letters are given, and the cursor skips them.
+		const kinds = await page.locator("[data-slot-kind]").evaluateAll((slots) => slots.map((s) => s.getAttribute("data-slot-kind")));
+		await page.keyboard.type([...testWordFor(src!)].filter((_, i) => kinds[i] === "typed").join(""));
 		await expect(page.getByText(/^Correct! \+\d+$/)).toBeVisible();
 	}
 

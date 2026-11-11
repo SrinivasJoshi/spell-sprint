@@ -79,4 +79,24 @@ describe("the Blanks model", () => {
 		expect(backspace(one).cursor).toBe(0);
 		expect(typeLetter(one, "t").submit).toBe("cat");
 	});
+
+	it("submits when the last typed slot fills, even with given slots at either end, and backspace skips them", () => {
+		const slots: Slot[] = [{ kind: "given", char: "u" }, { kind: "typed" }, { kind: "typed" }, { kind: "given", char: "s" }];
+		const start = createBlanks(slots);
+		expect(start.cursor).toBe(1);
+		const { blanks, submitted } = typeAll(start, "PS");
+		expect(submitted).toBe("upss");
+		const wrong = guessResult(blanks, "wrong");
+		expect(backspace(wrong).cells).toEqual(["u", "p", null, "s"]);
+		expect(backspace(backspace(backspace(wrong))).cells).toEqual(["u", null, null, "s"]);
+		expect(backspace(backspace(backspace(wrong))).cursor).toBe(1);
+	});
+
+	it("hands the Blanks back after a Near Miss, letters kept, like a wrong guess", () => {
+		const { blanks } = typeAll(createBlanks(typed(3)), "cta");
+		const almost = guessResult(blanks, "near-miss");
+		expect(almost.status).toBe("editing");
+		expect(almost.cells).toEqual(["c", "t", "a"]);
+		expect(almost.wrongCount).toBe(1);
+	});
 });
