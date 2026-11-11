@@ -130,3 +130,10 @@ Each entry below has the same shape:
 ## Project choices
 
 > Record here the dependencies this project adds, swaps or reintroduces, in the same format. Upgrades of the starter do not touch this section.
+
+### Catalogue pictures: `sharp` (dev only)
+
+- **Choice:** `sharp`, a devDependency used only by `npm run catalogue:import` (`bin/lib/catalogue/picture.ts`) to centre-crop each source picture to square, scale it down and encode it as WebP of at most 150 KB.
+- **Why:** the source pictures are 2048 px PNGs of 2–6 MB, and Node has no image decoder or WebP encoder. `sharp` was already in the tree (miniflare depends on it), so declaring it adds no package; its native binaries come as prebuilt optional packages, with no install script. It never reaches the Worker or the browser.
+- **Rejected:** `squoosh`/`@jsquash` (WASM codecs, unmaintained or slower, and a new tree); shelling out to `cwebp`/ImageMagick (a system install every curator would need); converting in the Worker (Workers have no image codecs without paid Images).
+- **Revisit when:** pictures are converted somewhere else (Cloudflare Images, an upload page in the app), or miniflare stops depending on `sharp`, which makes it a real addition again.

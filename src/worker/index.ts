@@ -6,6 +6,7 @@ import { createAuth, handleAuthRequest } from "./middleware/auth";
 import { refuseStaleAuthRequest } from "./lib/auth-requests";
 import { isSessionCreatingAuthRequest, signInWithDisabledGuard } from "./lib/sign-in-guard";
 import { cli } from "./routes/cli";
+import { cliCatalogue } from "./routes/cli-catalogue";
 import { profile } from "./routes/profile";
 import { sessions } from "./routes/sessions";
 import { admin } from "./routes/admin"; // [admin-area-line]
@@ -175,6 +176,7 @@ app.all("/api/auth/*", async (c) => {
 	return response;
 });
 
+app.route("/api/cli/catalogue", cliCatalogue);
 app.route("/api/cli", cli);
 app.route(CLIENT_ERRORS_PATH, clientErrors);
 app.route("/api/demo", demo);

@@ -39,3 +39,6 @@ pnpm-lock.yaml
 
 # Worktrees created by Claude Code (claude --worktree, isolated subagents)
 .claude/worktrees/
+
+# Blankrace: the curator's pictures and catalogue.json (npm run catalogue:scan / catalogue:import)
+/catalogue/

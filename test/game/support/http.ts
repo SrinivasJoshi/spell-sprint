@@ -36,3 +36,7 @@ export async function createRoom(token: string, options: { kind?: RoomKind } = {
 	expect(res.status).toBe(200);
 	return ((await res.json()) as CreateRoomResponse).code;
 }
+
+/** A call from a CLI script (`/api/cli/...`), with the CLI key unless another is given. */
+export const cliRequest = (path: string, init: RequestInit = {}, key = env.CLI_API_KEY) =>
+	app.request(`/api/cli${path}`, { ...init, headers: { "x-api-key": key, ...init.headers } }, env);

@@ -36,7 +36,7 @@ const safeEqual = (a: string, b: string): boolean => {
 
 // CLI auth middleware — requires a shared `x-api-key` header matching
 // `CLI_API_KEY` in every environment. Fails closed if the key is not configured.
-const cliAuthMiddleware = async (c: AppContext, next: Next) => {
+export const cliAuthMiddleware = async (c: AppContext, next: Next) => {
 	const expected = c.env.CLI_API_KEY;
 	if (!expected) {
 		console.error("[CLI] CLI_API_KEY is not configured on the worker");
