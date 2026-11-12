@@ -41,8 +41,21 @@ export type RosterEntry = { id: string; name: string; identity: "guest" };
 /** Where the Room is in its Match cycle. */
 export type RoomPhase = "lobby" | "playing" | "over";
 
-/** `hostId` is the Host's person id. `podium` is there once the Match is over, so a browser arriving then can show it. */
-export type RoomSnapshot = { code: string; kind: RoomKind; hostId: string; roster: RosterEntry[]; phase: RoomPhase; podium?: PodiumEntry[] };
+/**
+ * `hostId` is the Host's person id. `spectatorIds`: the people in the roster
+ * who aren't Players of the current Match (they arrived after it started);
+ * empty in the Lobby. `podium` is there once the Match is over, so a browser
+ * arriving then can show it.
+ */
+export type RoomSnapshot = {
+	code: string;
+	kind: RoomKind;
+	hostId: string;
+	roster: RosterEntry[];
+	spectatorIds: string[];
+	phase: RoomPhase;
+	podium?: PodiumEntry[];
+};
 
 export type RefusalReason = "bad_identity" | "not_found" | "solo" | "full";
 
@@ -81,10 +94,13 @@ export function podium(players: { id: string; name: string }[], scores: Scores):
 }
 
 /** Why the Room turned down something a browser asked for; the socket stays open. */
-export type RejectionReason = "not_host" | "in_progress" | "no_words";
+export type RejectionReason = "not_host" | "in_progress" | "no_words" | "spectator";
 
-/** A Round as its start announces it. Never carries the word. */
-export type RoundStart = { round: number; rounds: number; pictureUrl: string; timeLimitMs: number; slots: Slot[] };
+/**
+ * A Round as its start announces it. Never carries the word. `timeLeftMs` is
+ * `timeLimitMs` at the start, less for someone who arrives during the Round.
+ */
+export type RoundStart = { round: number; rounds: number; pictureUrl: string; timeLimitMs: number; timeLeftMs: number; slots: Slot[] };
 
 /** A Round's end: the word, this Round's points, the totals, and the next picture to load ahead. */
 export type RoundEnd = { round: number; word: string; points: Scores; scores: Scores; nextPictureUrl: string | null; ms: number };

@@ -11,6 +11,7 @@ const REJECTIONS: Record<RejectionReason, string> = {
 	not_host: "Only the Host can start the Match.",
 	in_progress: "A Match is already under way.",
 	no_words: "There aren't enough pictures to play with yet. Please try again later.",
+	spectator: "You're watching this Match. You'll play in the next one.",
 };
 
 /** Turns down a request on an open socket; the browser stays in the Room. */

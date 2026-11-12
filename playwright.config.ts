@@ -24,6 +24,8 @@ if (website) process.env.WEBSITE_BASE_URL = `http://localhost:${websitePort}`;
 
 export default defineConfig({
 	testDir: "./e2e",
+	// project: the test Catalogue, when the local one can't fill a Match (runs once the dev server is up).
+	globalSetup: "./e2e/support/catalogue.ts",
 	fullyParallel: false,
 	forbidOnly: !!process.env.CI,
 	retries: process.env.CI ? 1 : 0,

@@ -20,14 +20,14 @@ type Props = RoundStart & {
  * height (less the page's padding) so the picture shrinks to keep everything on
  * one screen. Mount one per Round.
  */
-export function RoundScreen({ round, rounds, pictureUrl, timeLimitMs, slots, answer, onGuess, solvedBy = [] }: Props) {
+export function RoundScreen({ round, rounds, pictureUrl, timeLimitMs, timeLeftMs, slots, answer, onGuess, solvedBy = [] }: Props) {
 	const { blanks, press } = useBlanks(slots, answer, onGuess);
 	return (
 		<section className="flex h-[calc(100dvh-3rem-var(--app-banner-h,0px))] flex-col gap-3 sm:gap-4">
 			<p className="label-md text-muted-foreground">
 				Round {round} of {rounds}
 			</p>
-			<RoundTimer ms={timeLimitMs} />
+			<RoundTimer ms={timeLeftMs} total={timeLimitMs} />
 			<RoundPicture src={pictureUrl} />
 			<Blanks blanks={blanks} />
 			<p className="body-sm min-h-5 text-center text-muted-foreground" aria-live="polite">

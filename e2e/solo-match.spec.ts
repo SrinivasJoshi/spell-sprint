@@ -1,27 +1,14 @@
-import { execFileSync } from "node:child_process";
 import { expect, test } from "@playwright/test";
 import { ROUNDS_PER_MATCH } from "../src/shared/rooms";
+import { localCatalogue } from "./support/catalogue";
 
 // Spec #3, seam 4: a Solo Match played start to finish in a real browser,
 // typing the answers the local Catalogue gives: the picture URL's key is
-// enough to know the Word, as a Player recognising the picture would. With
-// too few Words for a Match, the test Catalogue goes in first (through the
-// dev server; needs CLI_API_KEY in .env.local). Its pictures aren't in local
-// R2, so they don't show.
-
-/** Spelling per picture key, read from the local D1. */
-function localCatalogue(): Map<string, string> {
-	const out = execFileSync("npx", ["wrangler", "d1", "execute", "DB", "--local", "--json", "--command", "select picture_key, spelling from words"], { encoding: "utf8" });
-	const [{ results }] = JSON.parse(out) as [{ results: { picture_key: string; spelling: string }[] }];
-	return new Map(results.map((r) => [r.picture_key, r.spelling]));
-}
+// enough to know the Word, as a Player recognising the picture would.
 
 let words = new Map<string, string>();
 
 test.beforeAll(() => {
-	words = localCatalogue();
-	if (words.size >= ROUNDS_PER_MATCH) return;
-	execFileSync("npm", ["run", "db:seed", "--", "--env", "local", "--file", "test-catalogue"], { stdio: "inherit" });
 	words = localCatalogue();
 });
 

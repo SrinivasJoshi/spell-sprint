@@ -8,7 +8,8 @@ import { Lobby } from "@/game/screens/Lobby";
 import { PodiumScreen } from "@/game/screens/PodiumScreen";
 import { RevealScreen } from "@/game/screens/RevealScreen";
 import { RoundScreen } from "@/game/screens/RoundScreen";
-import { hostName, solvedByOthers, type InRoom } from "@/game/state/room";
+import { SpectatingScreen } from "@/game/screens/SpectatingScreen";
+import { hostName, isSpectating, solvedByOthers, type InRoom } from "@/game/state/room";
 
 /** `/r/:code`: connects as this browser's Guest and shows the Room's current screen. */
 export function RoomPage() {
@@ -46,17 +47,19 @@ function InRoomScreen({ state, meId, room }: { state: InRoom; meId?: string; roo
 	if (podium) {
 		return <PodiumScreen podium={podium} kind={state.room.kind} meId={meId} hostId={state.room.hostId} hostName={hostName(state)} notice={state.notice} onPlayAgain={room.start} />;
 	}
-	if (!match || state.latecomer) {
+	if (!match) {
 		if (state.room.phase === "lobby") return <Lobby room={state.room} meId={meId} notice={state.notice} onStart={room.start} />;
-		// Joined mid-Match: not a Player of it, so no Round to type in; watching it comes with Spectators (#10).
+		// Joined mid-Match: the Room's catch-up (the current Round) is on its way.
 		return <p className="body-md m-auto text-muted-foreground">A Match is under way.</p>;
 	}
+	const spectating = isSpectating(state, meId);
 	switch (match.step) {
 		case "countdown":
-			return <CountdownScreen round={match.round} ms={match.ms} />;
+			return <CountdownScreen round={match.round} ms={match.ms} spectating={spectating} />;
 		case "round":
+			if (spectating) return <SpectatingScreen key={match.round} {...match} solvedBy={solvedByOthers(state, meId)} />;
 			return <RoundScreen key={match.round} {...match} answer={state.guess} onGuess={room.guess} solvedBy={solvedByOthers(state, meId)} />;
 		case "reveal":
-			return <RevealScreen round={match.round} word={match.word} myPoints={(meId && match.points[meId]) || 0} myTotal={myTotal} nextPictureUrl={match.nextPictureUrl} />;
+			return <RevealScreen round={match.round} word={match.word} myPoints={(meId && match.points[meId]) || 0} myTotal={myTotal} nextPictureUrl={match.nextPictureUrl} spectating={spectating} />;
 	}
 }

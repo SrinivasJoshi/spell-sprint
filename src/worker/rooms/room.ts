@@ -48,6 +48,9 @@ type MatchState = {
 	solved: Scores;
 };
 
+/** A Player of this Match: there when it started. Anyone else in the Room is a Spectator until the next one. */
+const isPlayer = (match: MatchState, personId: string) => personId in match.scores;
+
 /** What each socket carries: its person, and when it joined, so the roster keeps the order people arrived in. */
 type Attachment = { person: RosterEntry; joinedAt: number };
 const personOf = (ws: WebSocket) => (ws.deserializeAttachment() as Attachment).person;
@@ -125,6 +128,7 @@ export class Room extends DurableObject<AppEnv> {
 		this.ctx.acceptWebSocket(server);
 		server.serializeAttachment({ person, joinedAt: Date.now() } satisfies Attachment);
 		this.broadcast({ type: "room", room: await this.snapshot(room) });
+		await this.catchUp(server);
 		return new Response(null, { status: 101, webSocket: client });
 	}
 
@@ -232,24 +236,46 @@ export class Room extends DurableObject<AppEnv> {
 		}));
 	}
 
+	/**
+	 * Brings a socket that arrives mid-Match to where the Match stands, with the
+	 * messages everyone else had: the countdown, the Round with the time it has
+	 * left and who has solved it, or the reveal. The Podium is in the snapshot.
+	 */
+	private async catchUp(ws: WebSocket): Promise<void> {
+		const match = await this.loadMatch();
+		if (!match || match.step === "over") return;
+		const now = Date.now();
+		const alarmLeft = async () => Math.max(((await this.ctx.storage.getAlarm()) ?? now) - now, 0);
+		if (match.step === "countdown") return this.send(ws, { type: "countdown", round: match.round, ms: await alarmLeft() });
+		if (match.step === "reveal") return this.send(ws, this.roundEndMessage(match, await alarmLeft()));
+		this.send(ws, this.roundStartMessage(match, now));
+		for (const playerId of Object.keys(match.solved)) this.send(ws, { type: "solved", playerId });
+	}
+
 	private async countdown(match: MatchState): Promise<void> {
 		this.broadcast({ type: "countdown", round: match.round, ms: COUNTDOWN_MS });
 		await this.ctx.storage.setAlarm(Date.now() + COUNTDOWN_MS);
 	}
 
 	private async startRound(match: MatchState): Promise<void> {
-		const word = match.words[match.round - 1];
 		const next: MatchState = { ...match, step: "round", roundStartedAt: Date.now(), solved: {} };
 		await this.saveMatch(next);
-		this.broadcast({
+		this.broadcast(this.roundStartMessage(next, next.roundStartedAt));
+		await this.ctx.storage.setAlarm(next.roundStartedAt + ROUND_TIME_MS);
+	}
+
+	/** The current Round's start, as seen at `now`. */
+	private roundStartMessage(match: MatchState, now: number): Extract<ServerMessage, { type: "round" }> {
+		const word = match.words[match.round - 1];
+		return {
 			type: "round",
-			round: next.round,
-			rounds: next.words.length,
+			round: match.round,
+			rounds: match.words.length,
 			pictureUrl: pictureUrl(word.pictureKey),
 			timeLimitMs: ROUND_TIME_MS,
+			timeLeftMs: Math.max(match.roundStartedAt + ROUND_TIME_MS - now, 0),
 			slots: blanksFor(word),
-		});
-		await this.ctx.storage.setAlarm(next.roundStartedAt + ROUND_TIME_MS);
+		};
 	}
 
 	/**
@@ -260,7 +286,10 @@ export class Room extends DurableObject<AppEnv> {
 	 */
 	private async guess(person: RosterEntry, guess: string): Promise<void> {
 		const match = await this.loadMatch();
-		if (!match || match.step !== "round" || !(person.id in match.scores) || person.id in match.solved) return;
+		if (!match || match.step !== "round") return;
+		if (!isPlayer(match, person.id)) return this.sendTo(person.id, rejection("spectator"));
+		// Solved already, in another tab or before a reload (which shows the Round afresh): answer again, so it isn't left waiting.
+		if (person.id in match.solved) return this.sendTo(person.id, { type: "guess-result", result: "correct", points: match.solved[person.id] });
 		const elapsed = Date.now() - match.roundStartedAt;
 		// Time is up but the alarm hasn't run yet: end the Round now, so the guesser isn't left waiting.
 		if (elapsed >= ROUND_TIME_MS) return this.endRound(match);
@@ -281,26 +310,31 @@ export class Room extends DurableObject<AppEnv> {
 		this.broadcast({ type: "solved", playerId: person.id });
 		// Everyone still here has solved it: no need to wait out the timer.
 		const solved = this.match!.solved;
-		if (this.people().every((p) => !(p.id in match.scores) || p.id in solved)) await this.endRound(this.match!);
+		if (this.people().every((p) => !isPlayer(match, p.id) || p.id in solved)) await this.endRound(this.match!);
 	}
 
 	/** Reveals the word and the points, and sends the next picture so browsers can load it during the reveal. */
 	private async endRound(match: MatchState): Promise<void> {
 		const next: MatchState = { ...match, step: "reveal" };
 		await this.saveMatch(next);
+		this.broadcast(this.roundEndMessage(next, REVEAL_MS));
+		await this.ctx.storage.setAlarm(Date.now() + REVEAL_MS);
+	}
+
+	/** The current Round's end, with `ms` of the reveal left. */
+	private roundEndMessage(match: MatchState, ms: number): Extract<ServerMessage, { type: "round-end" }> {
 		const points: Scores = {};
 		for (const id of Object.keys(match.scores)) points[id] = match.solved[id] ?? 0;
 		const following = match.words[match.round];
-		this.broadcast({
+		return {
 			type: "round-end",
 			round: match.round,
 			word: match.words[match.round - 1].spelling,
 			points,
 			scores: match.scores,
 			nextPictureUrl: following ? pictureUrl(following.pictureKey) : null,
-			ms: REVEAL_MS,
-		});
-		await this.ctx.storage.setAlarm(Date.now() + REVEAL_MS);
+			ms,
+		};
 	}
 
 	private async afterReveal(match: MatchState): Promise<void> {
@@ -334,7 +368,16 @@ export class Room extends DurableObject<AppEnv> {
 
 	private async snapshot(room: RoomRecord, leaving?: WebSocket): Promise<RoomSnapshot> {
 		const match = await this.loadMatch();
-		const snapshot: RoomSnapshot = { code: room.code, kind: room.kind, hostId: room.creatorId, roster: this.people(leaving), phase: await this.phase() };
+		const roster = this.people(leaving);
+		const snapshot: RoomSnapshot = {
+			code: room.code,
+			kind: room.kind,
+			hostId: room.creatorId,
+			roster,
+			// Not in this Match's scores: arrived after it started. A new Match takes them all (start()).
+			spectatorIds: match ? roster.filter((p) => !isPlayer(match, p.id)).map((p) => p.id) : [],
+			phase: await this.phase(),
+		};
 		if (match?.step === "over") snapshot.podium = podium(match.players, match.scores);
 		return snapshot;
 	}
