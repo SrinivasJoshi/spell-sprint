@@ -11,8 +11,13 @@ export function isRoomCode(value: string): boolean {
 	return value.length === ROOM_CODE_LENGTH && [...value].every((ch) => ROOM_CODE_ALPHABET.includes(ch));
 }
 
-/** Only Solo Rooms exist so far; Private and Public join this union later. */
-export type RoomKind = "solo";
+/** Solo: its creator alone. Private: anyone with the code or link. Public joins this union later. */
+export const ROOM_KINDS = ["solo", "private"] as const;
+export type RoomKind = (typeof ROOM_KINDS)[number];
+export const isRoomKind = (value: unknown): value is RoomKind => (ROOM_KINDS as readonly unknown[]).includes(value);
+
+/** Everyone in a Room at once, Players and Spectators together (spec #3). */
+export const MAX_PEOPLE_PER_ROOM = 10;
 
 /** A Guest as its token carries it: no D1 row (ADR 0001). */
 export type Guest = { id: string; name: string };
@@ -36,10 +41,10 @@ export type RosterEntry = { id: string; name: string; identity: "guest" };
 /** Where the Room is in its Match cycle. */
 export type RoomPhase = "lobby" | "playing" | "over";
 
-/** `podium` is there once the Match is over, so a browser arriving then can show it. */
-export type RoomSnapshot = { code: string; kind: RoomKind; roster: RosterEntry[]; phase: RoomPhase; podium?: PodiumEntry[] };
+/** `hostId` is the Host's person id. `podium` is there once the Match is over, so a browser arriving then can show it. */
+export type RoomSnapshot = { code: string; kind: RoomKind; hostId: string; roster: RosterEntry[]; phase: RoomPhase; podium?: PodiumEntry[] };
 
-export type RefusalReason = "bad_identity" | "not_found" | "solo";
+export type RefusalReason = "bad_identity" | "not_found" | "solo" | "full";
 
 /** A Match is exactly this many Rounds (spec #3). */
 export const ROUNDS_PER_MATCH = 5;

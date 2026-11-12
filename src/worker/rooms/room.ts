@@ -2,6 +2,7 @@ import { DurableObject } from "cloudflare:workers";
 import { sql } from "kysely";
 import {
 	COUNTDOWN_MS,
+	MAX_PEOPLE_PER_ROOM,
 	REVEAL_MS,
 	ROUND_TIME_MS,
 	ROUNDS_PER_MATCH,
@@ -21,7 +22,7 @@ import { decodeHintPositions } from "../db/hint-positions";
 import type { AppEnv } from "../types/env";
 import { refusedSocket, rejection } from "./refuse";
 
-/** What a Room remembers about itself; set once, at creation. */
+/** What a Room remembers about itself; set once, at creation. Its creator is the Host (handoff: #11). */
 type RoomRecord = { code: string; kind: RoomKind; creatorId: string };
 
 /** The Words of a Match. The spelling never leaves the Room before its Round ends. */
@@ -46,6 +47,10 @@ type MatchState = {
 	/** This Round's points per Player who has solved it. */
 	solved: Scores;
 };
+
+/** What each socket carries: its person, and when it joined, so the roster keeps the order people arrived in. */
+type Attachment = { person: RosterEntry; joinedAt: number };
+const personOf = (ws: WebSocket) => (ws.deserializeAttachment() as Attachment).person;
 
 /** Header the Worker uses to tell the Room who is connecting (it verified the identity). */
 export const ROOM_IDENTITY_HEADER = "x-room-identity";
@@ -112,10 +117,13 @@ export class Room extends DurableObject<AppEnv> {
 		const person = JSON.parse(request.headers.get(ROOM_IDENTITY_HEADER) ?? "null") as RosterEntry | null;
 		if (!person) return refusedSocket("bad_identity");
 		if (room.kind === "solo" && person.id !== room.creatorId) return refusedSocket("solo");
+		const people = this.people();
+		// Another tab of someone already here doesn't take a place.
+		if (people.length >= MAX_PEOPLE_PER_ROOM && !people.some((p) => p.id === person.id)) return refusedSocket("full");
 
 		const [client, server] = Object.values(new WebSocketPair());
 		this.ctx.acceptWebSocket(server);
-		server.serializeAttachment(person);
+		server.serializeAttachment({ person, joinedAt: Date.now() } satisfies Attachment);
 		this.broadcast({ type: "room", room: await this.snapshot(room) });
 		return new Response(null, { status: 101, webSocket: client });
 	}
@@ -127,7 +135,7 @@ export class Room extends DurableObject<AppEnv> {
 		} catch {
 			return;
 		}
-		const person = ws.deserializeAttachment() as RosterEntry;
+		const person = personOf(ws);
 		if (message.type === "start") await this.start(ws, person);
 		else if (message.type === "guess" && typeof message.guess === "string") await this.guess(person, message.guess);
 	}
@@ -271,6 +279,9 @@ export class Room extends DurableObject<AppEnv> {
 		});
 		this.sendTo(person.id, { type: "guess-result", result: "correct", points });
 		this.broadcast({ type: "solved", playerId: person.id });
+		// Everyone still here has solved it: no need to wait out the timer.
+		const solved = this.match!.solved;
+		if (this.people().every((p) => !(p.id in match.scores) || p.id in solved)) await this.endRound(this.match!);
 	}
 
 	/** Reveals the word and the points, and sends the next picture so browsers can load it during the reveal. */
@@ -309,20 +320,21 @@ export class Room extends DurableObject<AppEnv> {
 		return !match ? "lobby" : match.step === "over" ? "over" : "playing";
 	}
 
-	/** Everyone connected, once each (a person may have several tabs open). */
+	/** Everyone connected, once each (a person may have several tabs open), in the order they arrived. */
 	private people(leaving?: WebSocket): RosterEntry[] {
+		const attached = this.ctx
+			.getWebSockets()
+			.filter((ws) => ws !== leaving)
+			.map((ws) => ws.deserializeAttachment() as Attachment)
+			.sort((a, b) => a.joinedAt - b.joinedAt);
 		const roster = new Map<string, RosterEntry>();
-		for (const ws of this.ctx.getWebSockets()) {
-			if (ws === leaving) continue;
-			const person = ws.deserializeAttachment() as RosterEntry;
-			if (!roster.has(person.id)) roster.set(person.id, person);
-		}
+		for (const { person } of attached) if (!roster.has(person.id)) roster.set(person.id, person);
 		return [...roster.values()];
 	}
 
 	private async snapshot(room: RoomRecord, leaving?: WebSocket): Promise<RoomSnapshot> {
 		const match = await this.loadMatch();
-		const snapshot: RoomSnapshot = { code: room.code, kind: room.kind, roster: this.people(leaving), phase: await this.phase() };
+		const snapshot: RoomSnapshot = { code: room.code, kind: room.kind, hostId: room.creatorId, roster: this.people(leaving), phase: await this.phase() };
 		if (match?.step === "over") snapshot.podium = podium(match.players, match.scores);
 		return snapshot;
 	}
@@ -338,7 +350,7 @@ export class Room extends DurableObject<AppEnv> {
 	/** To every socket of one person: all their tabs. */
 	private sendTo(personId: string, message: ServerMessage): void {
 		for (const ws of this.ctx.getWebSockets()) {
-			if ((ws.deserializeAttachment() as RosterEntry).id === personId) this.send(ws, message);
+			if (personOf(ws).id === personId) this.send(ws, message);
 		}
 	}
 

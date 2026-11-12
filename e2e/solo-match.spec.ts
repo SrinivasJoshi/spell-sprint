@@ -32,7 +32,7 @@ const wordFor = (pictureUrl: string) => {
 };
 
 test("create a Solo Room, play 5 Rounds, see the Podium", async ({ page }) => {
-	// A Round runs its full 15 s even once solved: 5 × (3 s countdown + 15 s + 5 s reveal).
+	// A solved Round ends at once; the budget covers 5 × (3 s countdown + up to 15 s + 5 s reveal).
 	test.setTimeout(180_000);
 	await page.goto("/");
 	await page.getByRole("button", { name: "Create Solo Room" }).click();
@@ -45,7 +45,9 @@ test("create a Solo Room, play 5 Rounds, see the Podium", async ({ page }) => {
 		// Type only the typed slots: Hint Letters are given, and the cursor skips them.
 		const kinds = await page.locator("[data-slot-kind]").evaluateAll((slots) => slots.map((s) => s.getAttribute("data-slot-kind")));
 		await page.keyboard.type([...wordFor(src!)].filter((_, i) => kinds[i] === "typed").join(""));
-		await expect(page.getByText(/^Correct! \+\d+$/)).toBeVisible();
+		// Solved by its one Player, the Round ends at once: straight to the reveal.
+		await expect(page.getByText(`Round ${round}: the word was`)).toBeVisible();
+		await expect(page.getByText(/^\+\d+ points$/)).toBeVisible();
 	}
 
 	const podium = page.getByRole("list", { name: "Podium" });

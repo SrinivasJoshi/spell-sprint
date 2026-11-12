@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { isRoomCode, roomPagePath, ROOM_CODE_ALPHABET, ROOM_CODE_LENGTH, type CreateRoomRequest, type CreateRoomResponse, type RosterEntry } from "../../shared/rooms";
+import { isRoomCode, isRoomKind, roomPagePath, ROOM_CODE_ALPHABET, ROOM_CODE_LENGTH, type CreateRoomRequest, type CreateRoomResponse, type RosterEntry } from "../../shared/rooms";
 import { AppError } from "../lib/errors";
 import { verifyGuestToken } from "../lib/guest-token";
 import { refusedSocket } from "../rooms/refuse";
@@ -33,7 +33,7 @@ rooms.post("/", async (c) => {
 	}
 
 	const body = (await c.req.json<Partial<CreateRoomRequest>>().catch(() => ({}))) as Partial<CreateRoomRequest>;
-	if (body.kind !== "solo") throw new AppError(400, "That kind of Room can't be created.", { code: "bad_room_kind", log: `kind ${String(body.kind)}` });
+	if (!isRoomKind(body.kind)) throw new AppError(400, "That kind of Room can't be created.", { code: "bad_room_kind", log: `kind ${String(body.kind)}` });
 	const guest = await verifyGuestToken(c.env, typeof body.token === "string" ? body.token : undefined);
 	if (!guest) throw new AppError(401, "We couldn't tell who you are. Reload the page and try again.", { code: "bad_identity", log: "room creation with a missing or invalid Guest token" });
 

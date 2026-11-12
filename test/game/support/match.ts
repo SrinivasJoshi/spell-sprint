@@ -1,5 +1,5 @@
 import { expect } from "vitest";
-import { ROUNDS_PER_MATCH } from "../../../src/shared/rooms";
+import { ROUNDS_PER_MATCH, type GuestResponse } from "../../../src/shared/rooms";
 import { wordFor } from "./catalogue";
 import { advanceRoom } from "./clock";
 import { createRoom, issueGuest } from "./http";
@@ -12,6 +12,37 @@ export async function soloRoom() {
 	const socket = await openRoomSocket(code, token);
 	await socket.next("room");
 	return { code, socket, guest };
+}
+
+/** A Guest's socket in a Room, once it has had the roster. */
+export async function joinRoom(code: string, guest: GuestResponse) {
+	const socket = await openRoomSocket(code, guest.token);
+	await socket.next("room");
+	return socket;
+}
+
+/** A Private Room with its Host (first) and `others` friends in it, every socket having seen the full roster. Close the sockets after. */
+export async function privateRoom(others: number) {
+	const host = await issueGuest();
+	const code = await createRoom(host.token, { kind: "private" });
+	const guests = [host];
+	const sockets = [await joinRoom(code, host)];
+	for (let i = 0; i < others; i++) {
+		const guest = await issueGuest();
+		guests.push(guest);
+		sockets.push(await joinRoom(code, guest));
+	}
+	for (const s of sockets) await s.next("room", (m) => m.room.roster.length === guests.length);
+	return { code, guests, sockets };
+}
+
+/** The Host starts the Match and every socket reaches Round 1: its word. */
+export async function toRound1(code: string, sockets: RoomSocket[]) {
+	sockets[0].send({ type: "start" });
+	for (const s of sockets) await s.next("countdown");
+	await advanceRoom(code);
+	const rounds = await Promise.all(sockets.map((s) => s.next("round")));
+	return wordFor(rounds[0].pictureUrl);
 }
 
 /**
@@ -34,8 +65,10 @@ export async function playMatch(code: string, socket: RoomSocket, solve: (round:
 			const solvedSoFar = () => since().filter((m) => m.type === "solved").length;
 			const expected = solvedSoFar() + 1;
 			await socket.next("solved", () => solvedSoFar() === expected);
+		} else {
+			// A solved Round ends at once: its one Player has solved it.
+			await advanceRoom(code);
 		}
-		await advanceRoom(code);
 		const end = await socket.next("round-end", (m) => m.round === round && since().includes(m));
 		expect(end.nextPictureUrl === null).toBe(round === ROUNDS_PER_MATCH);
 		await advanceRoom(code);

@@ -10,6 +10,8 @@ import type { GuessAnswer } from "../state/room";
 type Props = RoundStart & {
 	answer?: GuessAnswer;
 	onGuess: (guess: string) => void;
+	/** The other Players who have solved this Round, by name. */
+	solvedBy?: string[];
 };
 
 /**
@@ -18,7 +20,7 @@ type Props = RoundStart & {
  * height (less the page's padding) so the picture shrinks to keep everything on
  * one screen. Mount one per Round.
  */
-export function RoundScreen({ round, rounds, pictureUrl, timeLimitMs, slots, answer, onGuess }: Props) {
+export function RoundScreen({ round, rounds, pictureUrl, timeLimitMs, slots, answer, onGuess, solvedBy = [] }: Props) {
 	const { blanks, press } = useBlanks(slots, answer, onGuess);
 	return (
 		<section className="flex h-[calc(100dvh-3rem-var(--app-banner-h,0px))] flex-col gap-3 sm:gap-4">
@@ -31,6 +33,11 @@ export function RoundScreen({ round, rounds, pictureUrl, timeLimitMs, slots, ans
 			<p className="body-sm min-h-5 text-center text-muted-foreground" aria-live="polite">
 				{statusLine(blanks.status, answer)}
 			</p>
+			{solvedBy.length > 0 && (
+				<p className="label-sm text-center text-muted-foreground" aria-live="polite">
+					Solved: {solvedBy.join(", ")}
+				</p>
+			)}
 			<OnScreenKeyboard onKey={press} disabled={blanks.status === "solved"} />
 		</section>
 	);

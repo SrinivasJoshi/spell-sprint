@@ -37,7 +37,7 @@ describe("joining a Solo Room", () => {
 		const code = await createRoom(token);
 		const socket = await openRoomSocket(code, token);
 		const state = await socket.next("room");
-		expect(state.room).toEqual({ code, kind: "solo", roster: [{ id: guest.id, name: guest.name, identity: "guest" }], phase: "lobby" });
+		expect(state.room).toEqual({ code, kind: "solo", hostId: guest.id, roster: [{ id: guest.id, name: guest.name, identity: "guest" }], phase: "lobby" });
 		socket.close();
 	});
 

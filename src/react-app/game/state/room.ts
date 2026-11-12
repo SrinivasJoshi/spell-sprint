@@ -22,6 +22,8 @@ export type InRoom = {
 	/** Who has solved the current Round. */
 	solved: string[];
 	guess?: GuessAnswer;
+	/** Arrived while a Match was under way, so not one of its Players: shown no Round until the next Match. */
+	latecomer?: boolean;
 	/** Why the Room turned down the last request, until the next one. */
 	notice?: string;
 };
@@ -40,7 +42,7 @@ export type RoomEvent = ServerMessage | { type: "closed" };
 export function roomReducer(state: RoomState, event: RoomEvent): RoomState {
 	switch (event.type) {
 		case "room":
-			return state.status === "in-room" ? { ...state, room: event.room } : { status: "in-room", room: event.room, scores: {}, solved: [] };
+			return state.status === "in-room" ? { ...state, room: event.room } : { status: "in-room", room: event.room, scores: {}, solved: [], latecomer: event.room.phase === "playing" };
 		case "refused":
 			return { status: "refused", message: event.message };
 		case "closed":
@@ -53,7 +55,14 @@ export function roomReducer(state: RoomState, event: RoomEvent): RoomState {
 		case "rejected":
 			return { ...state, notice: event.message };
 		case "countdown":
-			return { ...state, notice: undefined, scores: event.round === 1 ? {} : state.scores, match: { step: "countdown", round: event.round, ms: event.ms } };
+			return {
+				...state,
+				notice: undefined,
+				scores: event.round === 1 ? {} : state.scores,
+				// A new Match takes everyone in the Room.
+				latecomer: state.latecomer && event.round !== 1,
+				match: { step: "countdown", round: event.round, ms: event.ms },
+			};
 		case "round":
 			return {
 				...state,
@@ -75,3 +84,11 @@ export function roomReducer(state: RoomState, event: RoomEvent): RoomState {
 			return { ...state, match: { step: "over", podium: event.podium } };
 	}
 }
+
+/** The other Players who have solved the current Round, by name, in roster order. */
+export function solvedByOthers(state: InRoom, meId?: string): string[] {
+	return state.room.roster.filter((p) => p.id !== meId && state.solved.includes(p.id)).map((p) => p.name);
+}
+
+/** The Host's display name, from the roster. */
+export const hostName = (state: InRoom): string | undefined => state.room.roster.find((p) => p.id === state.room.hostId)?.name;

@@ -8,7 +8,7 @@ import { Lobby } from "@/game/screens/Lobby";
 import { PodiumScreen } from "@/game/screens/PodiumScreen";
 import { RevealScreen } from "@/game/screens/RevealScreen";
 import { RoundScreen } from "@/game/screens/RoundScreen";
-import type { InRoom } from "@/game/state/room";
+import { hostName, solvedByOthers, type InRoom } from "@/game/state/room";
 
 /** `/r/:code`: connects as this browser's Guest and shows the Room's current screen. */
 export function RoomPage() {
@@ -43,17 +43,19 @@ function InRoomScreen({ state, meId, room }: { state: InRoom; meId?: string; roo
 	const myTotal = (meId && state.scores[meId]) || 0;
 	// At the Podium: the message's, or the snapshot's for a browser that arrived after it.
 	const podium = match?.step === "over" ? match.podium : !match ? state.room.podium : undefined;
-	if (podium) return <PodiumScreen podium={podium} kind={state.room.kind} meId={meId} notice={state.notice} onPlayAgain={room.start} />;
-	if (!match) {
+	if (podium) {
+		return <PodiumScreen podium={podium} kind={state.room.kind} meId={meId} hostId={state.room.hostId} hostName={hostName(state)} notice={state.notice} onPlayAgain={room.start} />;
+	}
+	if (!match || state.latecomer) {
 		if (state.room.phase === "lobby") return <Lobby room={state.room} meId={meId} notice={state.notice} onStart={room.start} />;
-		// Joined mid-Match: catching up comes with reconnecting (#11).
+		// Joined mid-Match: not a Player of it, so no Round to type in; watching it comes with Spectators (#10).
 		return <p className="body-md m-auto text-muted-foreground">A Match is under way.</p>;
 	}
 	switch (match.step) {
 		case "countdown":
 			return <CountdownScreen round={match.round} ms={match.ms} />;
 		case "round":
-			return <RoundScreen key={match.round} {...match} answer={state.guess} onGuess={room.guess} />;
+			return <RoundScreen key={match.round} {...match} answer={state.guess} onGuess={room.guess} solvedBy={solvedByOthers(state, meId)} />;
 		case "reveal":
 			return <RevealScreen round={match.round} word={match.word} myPoints={(meId && match.points[meId]) || 0} myTotal={myTotal} nextPictureUrl={match.nextPictureUrl} />;
 	}

@@ -1,9 +1,10 @@
-import { ROOM_REFUSED_CLOSE_CODE, type RefusalReason, type RejectionReason, type ServerMessage } from "../../shared/rooms";
+import { MAX_PEOPLE_PER_ROOM, ROOM_REFUSED_CLOSE_CODE, type RefusalReason, type RejectionReason, type ServerMessage } from "../../shared/rooms";
 
 const REFUSALS: Record<RefusalReason, string> = {
 	bad_identity: "We couldn't tell who you are. Reload the page and try again.",
 	not_found: "There is no Room with that code.",
 	solo: "This is a Solo Room: only the person who created it can play in it.",
+	full: `This Room is full: it holds at most ${MAX_PEOPLE_PER_ROOM} people.`,
 };
 
 const REJECTIONS: Record<RejectionReason, string> = {
