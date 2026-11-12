@@ -70,6 +70,12 @@ describe("the Blanks model", () => {
 		expect(typeLetter(solved, "x").submit).toBeUndefined();
 	});
 
+	it("locks when the Room says the Round is solved, even with nothing typed (back after a dropped connection)", () => {
+		const solved = guessResult(createBlanks(typed(3)), "correct");
+		expect(solved.status).toBe("solved");
+		expect(typeLetter(solved, "x").submit).toBeUndefined();
+	});
+
 	it("skips given slots: the cursor never lands on them and the guess includes them", () => {
 		const slots: Slot[] = [{ kind: "typed" }, { kind: "given", char: "a" }, { kind: "typed" }];
 		const start = createBlanks(slots);

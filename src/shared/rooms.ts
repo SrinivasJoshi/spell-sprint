@@ -42,20 +42,28 @@ export type RosterEntry = { id: string; name: string; identity: "guest" };
 export type RoomPhase = "lobby" | "playing" | "over";
 
 /**
- * `hostId` is the Host's person id. `spectatorIds`: the people in the roster
+ * `hostId` is the Host's person id. `roster`: everyone in the Room, in the
+ * order they arrived, including those whose connection dropped less than
+ * `SEAT_HOLD_MS` ago (`awayIds`). `spectatorIds`: the people in the roster
  * who aren't Players of the current Match (they arrived after it started);
- * empty in the Lobby. `podium` is there once the Match is over, so a browser
- * arriving then can show it.
+ * empty in the Lobby. `scores`: the current or last Match's totals, so a
+ * reconnecting browser can redraw them. `podium` is there once the Match is
+ * over, so a browser arriving then can show it.
  */
 export type RoomSnapshot = {
 	code: string;
 	kind: RoomKind;
 	hostId: string;
 	roster: RosterEntry[];
+	awayIds: string[];
 	spectatorIds: string[];
 	phase: RoomPhase;
+	scores?: Scores;
 	podium?: PodiumEntry[];
 };
+
+/** How long a dropped connection keeps its place in the Room: a Player's Seat, or the Host role (spec #3). */
+export const SEAT_HOLD_MS = 30_000;
 
 export type RefusalReason = "bad_identity" | "not_found" | "solo" | "full";
 
@@ -109,10 +117,16 @@ export type RoundEnd = { round: number; word: string; points: Scores; scores: Sc
 export type GuessResult = "correct" | "near-miss" | "wrong";
 
 /** What a browser sends to its Room. */
-export type ClientMessage = { type: "start" } | { type: "guess"; guess: string };
+export type ClientMessage =
+	| { type: "start" }
+	| { type: "guess"; guess: string }
+	/** Leave Room, confirmed: gives up the Seat (and the Host role) at once, closing every tab of this person. */
+	| { type: "leave" };
 
 /** Close code a Room uses after sending a refusal (application range 4000-4999). */
 export const ROOM_REFUSED_CLOSE_CODE = 4403;
+/** Close code a Room uses for the sockets of someone who chose Leave Room: the browser doesn't reconnect. */
+export const ROOM_LEFT_CLOSE_CODE = 4001;
 
 export type ServerMessage =
 	| { type: "room"; room: RoomSnapshot }

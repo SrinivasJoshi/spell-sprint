@@ -1,6 +1,7 @@
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
+import { LeaveRoomButton } from "@/game/components/LeaveRoomButton";
 import { useGuest } from "@/game/hooks/useGuest";
 import { useRoom, type UseRoom } from "@/game/hooks/useRoom";
 import { CountdownScreen } from "@/game/screens/CountdownScreen";
@@ -18,18 +19,34 @@ export function RoomPage() {
 	const room = useRoom(code, guest?.token);
 	const { state } = room;
 	const failed = guest === null;
+	const navigate = useNavigate();
+	const leave = () => {
+		room.leave();
+		navigate("/");
+	};
 
 	return (
-		<main className="mx-auto flex min-h-screen w-full max-w-md flex-col gap-6 p-6">
+		<main className="relative mx-auto flex min-h-screen w-full max-w-md flex-col gap-6 p-6">
 			{state.status === "connecting" && !failed && (
 				<div className="flex flex-1 items-center justify-center">
 					<Spinner />
 				</div>
 			)}
-			{state.status === "in-room" && <InRoomScreen state={state} meId={guest?.guest.id} room={room} />}
-			{(failed || state.status === "refused" || state.status === "disconnected") && (
+			{state.status === "in-room" && (
+				<>
+					{/* Out of the flow, in the corner every screen leaves free, so a Round keeps its full height. */}
+					<LeaveRoomButton onLeave={leave} playing={state.room.phase === "playing"} className="absolute top-4 right-4" />
+					<InRoomScreen state={state} meId={guest?.guest.id} room={room} />
+					{state.reconnecting && (
+						<p role="status" className="label-sm fixed bottom-4 left-1/2 -translate-x-1/2 rounded-md border border-border bg-card px-3 py-2 text-muted-foreground shadow-sm">
+							Reconnecting…
+						</p>
+					)}
+				</>
+			)}
+			{(failed || state.status === "refused" || state.status === "left") && (
 				<div className="flex flex-1 flex-col items-center justify-center gap-4 text-center">
-					<p className="body-lg text-foreground">{state.status === "refused" ? state.message : failed ? "We couldn't get you into the Room." : "The connection to the Room was lost."}</p>
+					<p className="body-lg text-foreground">{state.status === "refused" ? state.message : state.status === "left" ? "You left this Room." : "We couldn't get you into the Room."}</p>
 					<Button asChild>
 						<Link to="/">Back home</Link>
 					</Button>

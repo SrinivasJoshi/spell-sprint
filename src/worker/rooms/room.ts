@@ -5,7 +5,9 @@ import {
 	MAX_PEOPLE_PER_ROOM,
 	REVEAL_MS,
 	ROUND_TIME_MS,
+	ROOM_LEFT_CLOSE_CODE,
 	ROUNDS_PER_MATCH,
+	SEAT_HOLD_MS,
 	podium,
 	roundPoints,
 	type ClientMessage,
@@ -22,7 +24,7 @@ import { decodeHintPositions } from "../db/hint-positions";
 import type { AppEnv } from "../types/env";
 import { refusedSocket, rejection } from "./refuse";
 
-/** What a Room remembers about itself; set once, at creation. Its creator is the Host (handoff: #11). */
+/** What a Room remembers about itself; set once, at creation. Its creator is the first Host. */
 type RoomRecord = { code: string; kind: RoomKind; creatorId: string };
 
 /** The Words of a Match. The spelling never leaves the Room before its Round ends. */
@@ -42,6 +44,10 @@ type MatchState = {
 	step: "countdown" | "round" | "reveal" | "over";
 	/** Server time the current Round's picture went up; speed is measured from it. */
 	roundStartedAt: number;
+	/** Server time the current step (countdown, Round, reveal) ends. */
+	dueAt: number;
+	/** Players whose Seat is gone (they left, or were away too long): still on the Podium, no longer playing. */
+	gone: string[];
 	/** Match totals per Player id: the Seats. */
 	scores: Scores;
 	/** This Round's points per Player who has solved it. */
@@ -49,10 +55,16 @@ type MatchState = {
 };
 
 /** A Player of this Match: there when it started. Anyone else in the Room is a Spectator until the next one. */
-const isPlayer = (match: MatchState, personId: string) => personId in match.scores;
+const isPlayer = (match: MatchState, personId: string) => personId in match.scores && !match.gone.includes(personId);
 
-/** What each socket carries: its person, and when it joined, so the roster keeps the order people arrived in. */
-type Attachment = { person: RosterEntry; joinedAt: number };
+/**
+ * Someone in the Room, in the order they arrived. `droppedAt`: when their last
+ * socket closed; they keep their place (a Player's Seat) until `SEAT_HOLD_MS` after it.
+ */
+type Presence = { person: RosterEntry; arrivedAt: number; droppedAt?: number };
+
+/** What each socket carries: its person. */
+type Attachment = { person: RosterEntry };
 const personOf = (ws: WebSocket) => (ws.deserializeAttachment() as Attachment).person;
 
 /** Header the Worker uses to tell the Room who is connecting (it verified the identity). */
@@ -80,14 +92,15 @@ function isNearMiss(guess: string, word: string): boolean {
 
 /**
  * One Room (ADR 0002): owns its WebSockets, through the Hibernation API, so an
- * idle Room costs nothing, and runs its Match on alarms. Each socket carries
- * its person as its attachment, and the roster is read from the sockets
- * themselves. Reached only through the Worker (src/worker/routes/rooms.ts),
- * which checks identities first.
+ * idle Room costs nothing, and runs its Match and its held Seats on one alarm.
+ * Each socket carries its person as its attachment; who is in the Room (the
+ * roster, with those briefly away) is kept in storage as `presence`. Reached
+ * only through the Worker (src/worker/routes/rooms.ts), which checks identities first.
  */
 export class Room extends DurableObject<AppEnv> {
 	private record: RoomRecord | undefined;
 	private match: MatchState | undefined;
+	private presence: Presence[] | undefined;
 	/** A start is drawing its Words. D1 is not storage, so the input gate lets another start in meanwhile. */
 	private starting = false;
 
@@ -99,6 +112,46 @@ export class Room extends DurableObject<AppEnv> {
 	private async loadMatch(): Promise<MatchState | undefined> {
 		this.match ??= await this.ctx.storage.get<MatchState>("match");
 		return this.match;
+	}
+
+	private async loadPresence(): Promise<Presence[]> {
+		if (this.presence) return this.presence;
+		const stored = (await this.ctx.storage.get<Presence[]>("presence")) ?? [];
+		// A new instance (a deploy or an eviction, not a wake from hibernation) has lost its sockets
+		// without a close event: whoever has none left is away from now, so their Seat isn't held forever.
+		const now = Date.now();
+		const lost = stored.some((p) => p.droppedAt === undefined && this.socketsOf(p.person.id).length === 0);
+		this.presence = stored.map((p) => (p.droppedAt === undefined && this.socketsOf(p.person.id).length === 0 ? { ...p, droppedAt: now } : p));
+		if (lost) {
+			await this.ctx.storage.put("presence", this.presence);
+			await this.schedule();
+		}
+		return this.presence;
+	}
+
+	/** Saves who is in the Room, and keeps the Host role with one of them (handOff). */
+	private async savePresence(presence: Presence[]): Promise<void> {
+		this.presence = presence;
+		await this.ctx.storage.put("presence", presence);
+		await this.handOff();
+	}
+
+	/** The Host's person id: the creator until the role first passes on. */
+	private async host(): Promise<string> {
+		return (await this.ctx.storage.get<string>("host")) ?? (await this.load())!.creatorId;
+	}
+
+	/**
+	 * Keeps the Host role with someone in the Room. When the Host is gone (left,
+	 * or away past SEAT_HOLD_MS) it passes to whoever has been here longest,
+	 * preferring someone connected; in an empty Room, to the next to arrive.
+	 */
+	private async handOff(): Promise<void> {
+		const presence = this.presence ?? [];
+		const host = await this.host();
+		if (presence.some((p) => p.person.id === host)) return;
+		const next = presence.find((p) => p.droppedAt === undefined) ?? presence[0];
+		if (next) await this.ctx.storage.put("host", next.person.id);
 	}
 
 	private async saveMatch(match: MatchState): Promise<void> {
@@ -120,15 +173,21 @@ export class Room extends DurableObject<AppEnv> {
 		const person = JSON.parse(request.headers.get(ROOM_IDENTITY_HEADER) ?? "null") as RosterEntry | null;
 		if (!person) return refusedSocket("bad_identity");
 		if (room.kind === "solo" && person.id !== room.creatorId) return refusedSocket("solo");
-		const people = this.people();
-		// Another tab of someone already here doesn't take a place.
-		if (people.length >= MAX_PEOPLE_PER_ROOM && !people.some((p) => p.id === person.id)) return refusedSocket("full");
+		const presence = await this.loadPresence();
+		// Someone already here (another tab, or back within SEAT_HOLD_MS) keeps their place.
+		const here = presence.find((p) => p.person.id === person.id);
+		if (!here && presence.length >= MAX_PEOPLE_PER_ROOM) return refusedSocket("full");
 
 		const [client, server] = Object.values(new WebSocketPair());
 		this.ctx.acceptWebSocket(server);
-		server.serializeAttachment({ person, joinedAt: Date.now() } satisfies Attachment);
+		server.serializeAttachment({ person } satisfies Attachment);
+		await this.savePresence(
+			here ? presence.map((p) => (p === here ? { person, arrivedAt: here.arrivedAt } : p)) : [...presence, { person, arrivedAt: Date.now() }],
+		);
+		// Back in time: their Seat's hold is over.
+		if (here?.droppedAt !== undefined) await this.schedule();
 		this.broadcast({ type: "room", room: await this.snapshot(room) });
-		await this.catchUp(server);
+		await this.catchUp(server, person.id);
 		return new Response(null, { status: 101, webSocket: client });
 	}
 
@@ -140,8 +199,11 @@ export class Room extends DurableObject<AppEnv> {
 			return;
 		}
 		const person = personOf(ws);
+		// Left already, from another tab: this one is closing.
+		if (!(await this.loadPresence()).some((p) => p.person.id === person.id)) return;
 		if (message.type === "start") await this.start(ws, person);
 		else if (message.type === "guess" && typeof message.guess === "string") await this.guess(person, message.guess);
+		else if (message.type === "leave") await this.leave(person);
 	}
 
 	async webSocketClose(ws: WebSocket): Promise<void> {
@@ -151,24 +213,97 @@ export class Room extends DurableObject<AppEnv> {
 		} catch {
 			// Already closed.
 		}
+		// Their last tab gone: the Seat is held for SEAT_HOLD_MS.
+		const { id } = personOf(ws);
+		if (this.socketsOf(id, ws).length === 0) {
+			const presence = await this.loadPresence();
+			await this.savePresence(presence.map((p) => (p.person.id === id ? { ...p, droppedAt: Date.now() } : p)));
+			await this.schedule();
+		}
 		const room = await this.load();
-		if (room) this.broadcast({ type: "room", room: await this.snapshot(room, ws) }, ws);
+		if (room) this.broadcast({ type: "room", room: await this.snapshot(room) }, ws);
+		await this.endIfAllSolved();
 	}
 
-	/** Moves the Match on: countdown → Round → reveal → next countdown, or the end of the Match. */
+	/**
+	 * The Room's one alarm serves every deadline: the Match's next step and the
+	 * end of each held Seat. It handles the earliest, and anything else due by
+	 * now. (A test may run it ahead of time: it then does what it was set for.)
+	 */
 	async alarm(): Promise<void> {
+		const now = Math.max(Date.now(), (await this.nextDeadline()) ?? 0);
+		await this.releaseSeats(now);
 		const match = await this.loadMatch();
-		if (!match) return;
-		if (match.step === "countdown") await this.startRound(match);
-		else if (match.step === "round") await this.endRound(match);
-		else if (match.step === "reveal") await this.afterReveal(match);
+		if (match && match.step !== "over" && match.dueAt <= now) {
+			// Moves the Match on: countdown → Round → reveal → next countdown, or the end of the Match.
+			if (match.step === "countdown") await this.startRound(match);
+			else if (match.step === "round") await this.endRound(match);
+			else await this.afterReveal(match);
+		}
+		await this.schedule();
+	}
+
+	private async nextDeadline(): Promise<number | undefined> {
+		const match = await this.loadMatch();
+		const deadlines = (await this.loadPresence()).flatMap((p) => (p.droppedAt === undefined ? [] : [p.droppedAt + SEAT_HOLD_MS]));
+		if (match && match.step !== "over") deadlines.push(match.dueAt);
+		return deadlines.length ? Math.min(...deadlines) : undefined;
+	}
+
+	/** Sets the alarm for the next deadline, if any. Call after any change to one. */
+	private async schedule(): Promise<void> {
+		const next = await this.nextDeadline();
+		if (next === undefined) await this.ctx.storage.deleteAlarm();
+		else await this.ctx.storage.setAlarm(next);
+	}
+
+	/** Away for SEAT_HOLD_MS by `now`: off the roster, and out of the Match if they were playing (their points stay on its Podium). */
+	private async releaseSeats(now: number): Promise<void> {
+		const presence = await this.loadPresence();
+		const expired = presence.filter((p) => p.droppedAt !== undefined && p.droppedAt + SEAT_HOLD_MS <= now).map((p) => p.person.id);
+		if (!expired.length) return;
+		await this.giveUp(expired);
+	}
+
+	/**
+	 * These people give up their place in the Room: off the roster, and their
+	 * Seat in the Match is gone. A Match with no Seat left is abandoned: the Room
+	 * goes back to the Lobby, so whoever comes back can start another.
+	 */
+	private async giveUp(ids: string[]): Promise<void> {
+		await this.savePresence((await this.loadPresence()).filter((p) => !ids.includes(p.person.id)));
+		const match = await this.loadMatch();
+		if (match) {
+			const gone = [...match.gone, ...ids.filter((id) => id in match.scores && !match.gone.includes(id))];
+			if (match.step !== "over" && Object.keys(match.scores).every((id) => gone.includes(id))) {
+				this.match = undefined;
+				await this.ctx.storage.delete("match");
+				await this.schedule();
+			} else await this.saveMatch({ ...match, gone });
+		}
+		const room = await this.load();
+		if (room) this.broadcast({ type: "room", room: await this.snapshot(room) });
+		await this.endIfAllSolved();
+	}
+
+	/** Leave Room: the Seat and the Host role go at once, and every tab of theirs is closed. */
+	private async leave(person: RosterEntry): Promise<void> {
+		const tabs = this.socketsOf(person.id);
+		await this.giveUp([person.id]);
+		for (const ws of tabs) {
+			try {
+				ws.close(ROOM_LEFT_CLOSE_CODE, "left");
+			} catch {
+				// Closed already.
+			}
+		}
 	}
 
 	/** The Host starts a Match, the first or another from the Podium: 5 Words drawn at random, then Round 1's countdown. */
 	private async start(ws: WebSocket, person: RosterEntry): Promise<void> {
 		const room = await this.load();
 		if (!room) return;
-		if (person.id !== room.creatorId) return this.send(ws, rejection("not_host"));
+		if (person.id !== (await this.host())) return this.send(ws, rejection("not_host"));
 		const current = await this.loadMatch();
 		if (this.starting || (current && current.step !== "over")) return this.send(ws, rejection("in_progress"));
 
@@ -181,7 +316,7 @@ export class Room extends DurableObject<AppEnv> {
 		}
 		if (!words) return this.send(ws, rejection("no_words"));
 
-		const players = this.people();
+		const players = (await this.loadPresence()).map((p) => p.person);
 		const scores: Scores = {};
 		for (const p of players) scores[p.id] = 0;
 		const match: MatchState = {
@@ -190,12 +325,14 @@ export class Room extends DurableObject<AppEnv> {
 			round: 1,
 			step: "countdown",
 			roundStartedAt: 0,
+			dueAt: 0,
+			gone: [],
 			scores,
 			solved: {},
 		};
 		await this.saveMatch(match);
 		this.broadcast({ type: "room", room: await this.snapshot(room) });
-		await this.countdown(match);
+		await this.countdown(match, 1);
 	}
 
 	/**
@@ -241,27 +378,32 @@ export class Room extends DurableObject<AppEnv> {
 	 * messages everyone else had: the countdown, the Round with the time it has
 	 * left and who has solved it, or the reveal. The Podium is in the snapshot.
 	 */
-	private async catchUp(ws: WebSocket): Promise<void> {
+	private async catchUp(ws: WebSocket, personId: string): Promise<void> {
 		const match = await this.loadMatch();
 		if (!match || match.step === "over") return;
 		const now = Date.now();
-		const alarmLeft = async () => Math.max(((await this.ctx.storage.getAlarm()) ?? now) - now, 0);
-		if (match.step === "countdown") return this.send(ws, { type: "countdown", round: match.round, ms: await alarmLeft() });
-		if (match.step === "reveal") return this.send(ws, this.roundEndMessage(match, await alarmLeft()));
+		const left = Math.max(match.dueAt - now, 0);
+		if (match.step === "countdown") return this.send(ws, { type: "countdown", round: match.round, ms: left });
+		if (match.step === "reveal") return this.send(ws, this.roundEndMessage(match, left));
 		this.send(ws, this.roundStartMessage(match, now));
 		for (const playerId of Object.keys(match.solved)) this.send(ws, { type: "solved", playerId });
+		// Back after solving it (a reload or a dropped connection): their input stays locked.
+		if (isPlayer(match, personId) && personId in match.solved) this.send(ws, { type: "guess-result", result: "correct", points: match.solved[personId] });
 	}
 
-	private async countdown(match: MatchState): Promise<void> {
-		this.broadcast({ type: "countdown", round: match.round, ms: COUNTDOWN_MS });
-		await this.ctx.storage.setAlarm(Date.now() + COUNTDOWN_MS);
+	/** Round `round`'s countdown: saves the Match at that step and tells everyone. */
+	private async countdown(match: MatchState, round: number): Promise<void> {
+		await this.saveMatch({ ...match, step: "countdown", round, dueAt: Date.now() + COUNTDOWN_MS });
+		this.broadcast({ type: "countdown", round, ms: COUNTDOWN_MS });
+		await this.schedule();
 	}
 
 	private async startRound(match: MatchState): Promise<void> {
-		const next: MatchState = { ...match, step: "round", roundStartedAt: Date.now(), solved: {} };
+		const now = Date.now();
+		const next: MatchState = { ...match, step: "round", roundStartedAt: now, dueAt: now + ROUND_TIME_MS, solved: {} };
 		await this.saveMatch(next);
-		this.broadcast(this.roundStartMessage(next, next.roundStartedAt));
-		await this.ctx.storage.setAlarm(next.roundStartedAt + ROUND_TIME_MS);
+		this.broadcast(this.roundStartMessage(next, now));
+		await this.schedule();
 	}
 
 	/** The current Round's start, as seen at `now`. */
@@ -308,17 +450,27 @@ export class Room extends DurableObject<AppEnv> {
 		});
 		this.sendTo(person.id, { type: "guess-result", result: "correct", points });
 		this.broadcast({ type: "solved", playerId: person.id });
-		// Everyone still here has solved it: no need to wait out the timer.
-		const solved = this.match!.solved;
-		if (this.people().every((p) => !isPlayer(match, p.id) || p.id in solved)) await this.endRound(this.match!);
+		await this.endIfAllSolved();
+	}
+
+	/**
+	 * Ends the Round early once every Player still connected has solved it: no
+	 * need to wait out the timer. Players whose connection dropped don't count;
+	 * with nobody connected the timer runs on, so a blip doesn't cost the Round.
+	 */
+	private async endIfAllSolved(): Promise<void> {
+		const match = await this.loadMatch();
+		if (match?.step !== "round") return;
+		const waitingFor = await this.connectedPlayers(match);
+		if (waitingFor.length > 0 && waitingFor.every((id) => id in match.solved)) await this.endRound(match);
 	}
 
 	/** Reveals the word and the points, and sends the next picture so browsers can load it during the reveal. */
 	private async endRound(match: MatchState): Promise<void> {
-		const next: MatchState = { ...match, step: "reveal" };
+		const next: MatchState = { ...match, step: "reveal", dueAt: Date.now() + REVEAL_MS };
 		await this.saveMatch(next);
 		this.broadcast(this.roundEndMessage(next, REVEAL_MS));
-		await this.ctx.storage.setAlarm(Date.now() + REVEAL_MS);
+		await this.schedule();
 	}
 
 	/** The current Round's end, with `ms` of the reveal left. */
@@ -338,11 +490,7 @@ export class Room extends DurableObject<AppEnv> {
 	}
 
 	private async afterReveal(match: MatchState): Promise<void> {
-		if (match.round < match.words.length) {
-			const next: MatchState = { ...match, step: "countdown", round: match.round + 1 };
-			await this.saveMatch(next);
-			return this.countdown(next);
-		}
+		if (match.round < match.words.length) return this.countdown(match, match.round + 1);
 		await this.saveMatch({ ...match, step: "over" });
 		this.broadcast({ type: "podium", podium: podium(match.players, match.scores) });
 		const room = await this.load();
@@ -354,30 +502,31 @@ export class Room extends DurableObject<AppEnv> {
 		return !match ? "lobby" : match.step === "over" ? "over" : "playing";
 	}
 
-	/** Everyone connected, once each (a person may have several tabs open), in the order they arrived. */
-	private people(leaving?: WebSocket): RosterEntry[] {
-		const attached = this.ctx
-			.getWebSockets()
-			.filter((ws) => ws !== leaving)
-			.map((ws) => ws.deserializeAttachment() as Attachment)
-			.sort((a, b) => a.joinedAt - b.joinedAt);
-		const roster = new Map<string, RosterEntry>();
-		for (const { person } of attached) if (!roster.has(person.id)) roster.set(person.id, person);
-		return [...roster.values()];
+	/** A person's open sockets (their tabs), less one that is closing. */
+	private socketsOf(personId: string, leaving?: WebSocket): WebSocket[] {
+		return this.ctx.getWebSockets().filter((ws) => ws !== leaving && personOf(ws).id === personId);
 	}
 
-	private async snapshot(room: RoomRecord, leaving?: WebSocket): Promise<RoomSnapshot> {
+	/** This Match's Players whose connection is up: the ones a Round waits for. */
+	private async connectedPlayers(match: MatchState): Promise<string[]> {
+		return (await this.loadPresence()).filter((p) => p.droppedAt === undefined && isPlayer(match, p.person.id)).map((p) => p.person.id);
+	}
+
+	private async snapshot(room: RoomRecord): Promise<RoomSnapshot> {
 		const match = await this.loadMatch();
-		const roster = this.people(leaving);
+		const presence = await this.loadPresence();
+		const roster = presence.map((p) => p.person);
 		const snapshot: RoomSnapshot = {
 			code: room.code,
 			kind: room.kind,
-			hostId: room.creatorId,
+			hostId: await this.host(),
 			roster,
+			awayIds: presence.filter((p) => p.droppedAt !== undefined).map((p) => p.person.id),
 			// Not in this Match's scores: arrived after it started. A new Match takes them all (start()).
 			spectatorIds: match ? roster.filter((p) => !isPlayer(match, p.id)).map((p) => p.id) : [],
 			phase: await this.phase(),
 		};
+		if (match) snapshot.scores = match.scores;
 		if (match?.step === "over") snapshot.podium = podium(match.players, match.scores);
 		return snapshot;
 	}

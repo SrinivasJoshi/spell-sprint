@@ -54,8 +54,13 @@ export function backspace(blanks: Blanks): Blanks {
 	return blanks;
 }
 
-/** The Room's answer to the submitted guess. A Near Miss is wrong too: the Player edits on. */
+/**
+ * The Room's answer to the submitted guess. A Near Miss is wrong too: the
+ * Player edits on. Correct always locks, even with no guess pending: the Room
+ * says so to a Player back after solving the Round (a reload or a dropped connection).
+ */
 export function guessResult(blanks: Blanks, result: GuessResult): Blanks {
+	if (result === "correct") return { ...blanks, status: "solved" };
 	if (blanks.status !== "checking") return blanks;
-	return result === "correct" ? { ...blanks, status: "solved" } : { ...blanks, status: "editing", wrongCount: blanks.wrongCount + 1 };
+	return { ...blanks, status: "editing", wrongCount: blanks.wrongCount + 1 };
 }

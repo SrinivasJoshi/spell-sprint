@@ -10,17 +10,22 @@ export async function createRoom(kind: RoomKind, token: string): Promise<CreateR
 	return (await res.json()) as CreateRoomResponse;
 }
 
-export type RoomSocket = { send: (message: ClientMessage) => void; close: () => void };
+/** `send` says whether the message went: not while the socket is opening or closed. */
+export type RoomSocket = { send: (message: ClientMessage) => boolean; close: () => void };
 
-/** Opens the Room's WebSocket and hands every message to `onMessage`. Reconnecting comes later (spec #3). */
-export function openRoomSocket(code: string, token: string, handlers: { onMessage: (message: ServerMessage) => void; onClose: () => void }): RoomSocket {
+/** Opens the Room's WebSocket and hands every message to `onMessage`; `onClose` gets the close code. Reconnecting is the caller's (useRoom). */
+export function openRoomSocket(code: string, token: string, handlers: { onMessage: (message: ServerMessage) => void; onClose: (code: number) => void }): RoomSocket {
 	const scheme = location.protocol === "https:" ? "wss" : "ws";
 	const socket = new WebSocket(`${scheme}://${location.host}${roomSocketPath(code, token)}`);
 	socket.addEventListener("message", (event) => handlers.onMessage(JSON.parse(event.data as string) as ServerMessage));
-	socket.addEventListener("close", handlers.onClose);
+	socket.addEventListener("close", (event) => handlers.onClose(event.code));
 	return {
 		// Dropped while the socket isn't open: the Room's next message tells the page where things stand.
-		send: (message) => socket.readyState === WebSocket.OPEN && socket.send(JSON.stringify(message)),
+		send: (message) => {
+			if (socket.readyState !== WebSocket.OPEN) return false;
+			socket.send(JSON.stringify(message));
+			return true;
+		},
 		close: () => socket.close(1000),
 	};
 }

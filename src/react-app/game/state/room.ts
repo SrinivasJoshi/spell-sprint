@@ -24,29 +24,30 @@ export type InRoom = {
 	guess?: GuessAnswer;
 	/** Why the Room turned down the last request, until the next one. */
 	notice?: string;
+	/** The connection dropped: what is shown is the last known state until the Room's new snapshot replaces it. */
+	reconnecting?: boolean;
 };
 
 /** The browser's view of a Room: the last snapshot the server sent and the messages since, plus how the connection stands. */
-export type RoomState =
-	| { status: "connecting" }
-	| InRoom
-	| { status: "refused"; message: string }
-	| { status: "disconnected"; room?: RoomSnapshot };
+export type RoomState = { status: "connecting" } | InRoom | { status: "refused"; message: string } | { status: "left" };
 
 export const initialRoomState: RoomState = { status: "connecting" };
 
-export type RoomEvent = ServerMessage | { type: "closed" };
+/** Besides the Room's messages: the connection dropped and is being reopened, or this person left the Room (from any tab). */
+export type RoomEvent = ServerMessage | { type: "reconnecting" } | { type: "left" };
 
 export function roomReducer(state: RoomState, event: RoomEvent): RoomState {
 	switch (event.type) {
 		case "room":
-			return state.status === "in-room" ? { ...state, room: event.room } : { status: "in-room", room: event.room, scores: {}, solved: [] };
+			// The first snapshot, or the first after a reconnect, starts afresh: the Room's catch-up follows it.
+			if (state.status !== "in-room" || state.reconnecting) return { status: "in-room", room: event.room, scores: event.room.scores ?? {}, solved: [] };
+			return { ...state, room: event.room };
 		case "refused":
 			return { status: "refused", message: event.message };
-		case "closed":
-			// A refusal is followed by a close; keep the reason on screen.
-			if (state.status === "refused") return state;
-			return { status: "disconnected", room: state.status === "in-room" ? state.room : undefined };
+		case "reconnecting":
+			return state.status === "in-room" ? { ...state, reconnecting: true } : state;
+		case "left":
+			return { status: "left" };
 	}
 	if (state.status !== "in-room") return state;
 	switch (event.type) {

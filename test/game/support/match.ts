@@ -45,6 +45,21 @@ export async function toRound1(code: string, sockets: RoomSocket[]) {
 	return wordFor(rounds[0].pictureUrl);
 }
 
+/** From the reveal of `round`, plays the rest of the Match out unsolved: the Podium, as `socket` sees it. */
+export async function finishMatch(code: string, socket: RoomSocket, round: number) {
+	await socket.next("round-end", (m) => m.round === round);
+	for (let r = round + 1; r <= ROUNDS_PER_MATCH; r++) {
+		await advanceRoom(code);
+		await socket.next("countdown", (m) => m.round === r);
+		await advanceRoom(code);
+		await socket.next("round", (m) => m.round === r);
+		await advanceRoom(code);
+		await socket.next("round-end", (m) => m.round === r);
+	}
+	await advanceRoom(code);
+	return (await socket.next("podium")).podium;
+}
+
 /**
  * Starts a Match in this Room and plays it to the Podium, solving the Rounds
  * `solve` picks. Returns the Words in the order they came, the Podium, and

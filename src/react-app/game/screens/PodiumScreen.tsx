@@ -1,11 +1,10 @@
-import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import type { PodiumEntry, RoomKind } from "../../../shared/rooms";
 import { Podium } from "../components/Podium";
 
 type Props = { podium: PodiumEntry[]; kind: RoomKind; meId?: string; hostId: string; hostName?: string; notice?: string; onPlayAgain: () => void };
 
-/** The end of a Match: the Podium, and for the Host Play again, which starts the next Match in this Room. */
+/** The end of a Match: the Podium, and for the Host Play again, which starts the next Match in this Room. Leaving is the page's Leave Room. */
 export function PodiumScreen({ podium, kind, meId, hostId, hostName, notice, onPlayAgain }: Props) {
 	const mine = podium.find((e) => e.playerId === meId);
 	return (
@@ -20,18 +19,13 @@ export function PodiumScreen({ podium, kind, meId, hostId, hostName, notice, onP
 					{notice}
 				</p>
 			)}
-			<div className="flex flex-col gap-3">
-				{meId === hostId ? (
-					<Button size="xl" variant="secondary" onClick={onPlayAgain}>
-						Play again
-					</Button>
-				) : (
-					<p className="body-md text-center text-muted-foreground">Waiting for {hostName ?? "the Host"} to start the next Match.</p>
-				)}
-				<Button asChild variant="outline">
-					<Link to="/">Back home</Link>
+			{meId === hostId ? (
+				<Button size="xl" variant="secondary" onClick={onPlayAgain}>
+					Play again
 				</Button>
-			</div>
+			) : (
+				<p className="body-md text-center text-muted-foreground">Waiting for {hostName ?? "the Host"} to start the next Match.</p>
+			)}
 		</section>
 	);
 }

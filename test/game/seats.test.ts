@@ -1,0 +1,176 @@
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { SEAT_HOLD_MS } from "../../src/shared/rooms";
+import { seedTestCatalogue } from "./support/catalogue";
+import { advanceRoom } from "./support/clock";
+import { createRoom, issueGuest } from "./support/http";
+import { finishMatch, joinRoom, privateRoom, toRound1 } from "./support/match";
+import type { RoomSocket } from "./support/room-socket";
+
+beforeAll(seedTestCatalogue);
+
+const open: RoomSocket[] = [];
+afterEach(() => {
+	vi.useRealTimers();
+	for (const s of open.splice(0)) s.close();
+});
+
+async function openPrivateRoom(others: number) {
+	const r = await privateRoom(others);
+	open.push(...r.sockets);
+	return r;
+}
+
+describe("a Player whose connection drops", () => {
+	it("keeps their Seat for 30 seconds: reconnecting restores their score, solved state and the current Round", async () => {
+		const { code, guests, sockets } = await openPrivateRoom(2);
+		const word = await toRound1(code, sockets);
+		const dropped = guests[1].guest.id;
+		sockets[1].send({ type: "guess", guess: word });
+		const { points } = (await sockets[1].next("guess-result")) as { points: number };
+
+		sockets[1].close();
+		const { room } = await sockets[0].next("room", (m) => m.room.awayIds.includes(dropped));
+		expect(room.roster.map((p) => p.id)).toContain(dropped);
+
+		const back = await joinRoom(code, guests[1]);
+		open.push(back);
+		const snapshot = (await back.next("room")).room;
+		expect(snapshot.awayIds).toEqual([]);
+		expect(snapshot.spectatorIds).toEqual([]);
+		expect(snapshot.scores?.[dropped]).toBe(points);
+		expect(await back.next("round")).toMatchObject({ round: 1 });
+		expect(await back.next("solved")).toEqual({ type: "solved", playerId: dropped });
+		expect(await back.next("guess-result")).toEqual({ type: "guess-result", result: "correct", points });
+	});
+
+	it("doesn't hold up the early end of a Round", async () => {
+		const { code, guests, sockets } = await openPrivateRoom(2);
+		const word = await toRound1(code, sockets);
+		sockets[2].close();
+		await sockets[0].next("room", (m) => m.room.awayIds.includes(guests[2].guest.id));
+		sockets[0].send({ type: "guess", guess: word });
+		sockets[1].send({ type: "guess", guess: word });
+		expect(await sockets[0].next("round-end")).toMatchObject({ round: 1, word });
+	});
+
+	it("ends the Round when everyone still connected has solved it", async () => {
+		const { code, sockets } = await openPrivateRoom(1);
+		const word = await toRound1(code, sockets);
+		sockets[0].send({ type: "guess", guess: word });
+		await sockets[0].next("solved");
+		sockets[1].close();
+		expect(await sockets[0].next("round-end")).toMatchObject({ round: 1, word });
+	});
+
+	it("loses the Seat after 30 seconds: off the roster, back only as a Spectator, but their points stay on the Podium", async () => {
+		const { code, guests, sockets } = await openPrivateRoom(1);
+		vi.useFakeTimers({ toFake: ["Date"] });
+		const word = await toRound1(code, sockets);
+		const dropped = guests[1].guest.id;
+		sockets[1].send({ type: "guess", guess: word });
+		const { points } = (await sockets[1].next("guess-result")) as { points: number };
+		sockets[1].close();
+		await sockets[0].next("room", (m) => m.room.awayIds.includes(dropped));
+
+		vi.setSystemTime(Date.now() + SEAT_HOLD_MS);
+		await advanceRoom(code);
+		const { room } = await sockets[0].next("room", (m) => m.room.phase === "playing" && !m.room.roster.some((p) => p.id === dropped));
+		expect(room.awayIds).toEqual([]);
+
+		const back = await joinRoom(code, guests[1]);
+		open.push(back);
+		expect((await back.next("room")).room.spectatorIds).toEqual([dropped]);
+
+		const podium = await finishMatch(code, sockets[0], 1);
+		expect(podium.find((e) => e.playerId === dropped)).toMatchObject({ points, place: 1 });
+	});
+});
+
+describe("a Match every Player has left", () => {
+	it("is abandoned: back after 30 seconds, the Solo Room's creator finds the Lobby and can start again", async () => {
+		const guest = await issueGuest();
+		const code = await createRoom(guest.token);
+		const socket = await joinRoom(code, guest);
+		vi.useFakeTimers({ toFake: ["Date"] });
+		await toRound1(code, [socket]);
+		socket.close();
+		// The Room completes the close handshake once it has seen the drop.
+		await vi.waitFor(() => expect(socket.closed).toBe(true));
+		vi.setSystemTime(Date.now() + SEAT_HOLD_MS);
+		await advanceRoom(code);
+
+		const back = await joinRoom(code, guest);
+		open.push(back);
+		const { room } = await back.next("room");
+		expect(room).toMatchObject({ phase: "lobby", hostId: guest.guest.id, spectatorIds: [] });
+		back.send({ type: "start" });
+		expect(await back.next("countdown")).toMatchObject({ round: 1 });
+	});
+});
+
+describe("Leave Room", () => {
+	it("gives up the Seat at once: off the roster, not holding up the Round, points still on the Podium", async () => {
+		const { code, guests, sockets } = await openPrivateRoom(2);
+		const word = await toRound1(code, sockets);
+		const leaver = guests[2].guest.id;
+		sockets[2].send({ type: "guess", guess: word });
+		const { points } = (await sockets[2].next("guess-result")) as { points: number };
+
+		sockets[2].send({ type: "leave" });
+		const { room } = await sockets[0].next("room", (m) => m.room.phase === "playing" && !m.room.roster.some((p) => p.id === leaver));
+		expect(room.awayIds).toEqual([]);
+		await vi.waitFor(() => expect(sockets[2].closed).toBe(true));
+
+		sockets[0].send({ type: "guess", guess: word });
+		sockets[1].send({ type: "guess", guess: word });
+		const podium = await finishMatch(code, sockets[0], 1);
+		expect(podium.find((e) => e.playerId === leaver)?.points).toBe(points);
+	});
+});
+
+describe("the Host role", () => {
+	it("passes at once to whoever has been in the Room longest when the Host leaves", async () => {
+		const { code, guests, sockets } = await openPrivateRoom(2);
+		// The first friend leaves and comes back: now the second has been here longer.
+		sockets[1].send({ type: "leave" });
+		await sockets[0].next("room", (m) => m.room.roster.length === 2 && !m.room.roster.some((p) => p.id === guests[1].guest.id));
+		const back = await joinRoom(code, guests[1]);
+		open.push(back);
+
+		sockets[0].send({ type: "leave" });
+		const { room } = await back.next("room", (m) => m.room.roster.length === 2);
+		expect(room.hostId).toBe(guests[2].guest.id);
+		sockets[2].send({ type: "start" });
+		expect(await back.next("countdown")).toMatchObject({ round: 1 });
+	});
+
+	it("passes after the Host has been disconnected for 30 seconds, not before", async () => {
+		const { code, guests, sockets } = await openPrivateRoom(2);
+		vi.useFakeTimers({ toFake: ["Date"] });
+		sockets[0].close();
+		const { room } = await sockets[1].next("room", (m) => m.room.awayIds.length === 1);
+		expect(room.hostId).toBe(guests[0].guest.id);
+
+		vi.setSystemTime(Date.now() + SEAT_HOLD_MS);
+		await advanceRoom(code);
+		const after = await sockets[1].next("room", (m) => m.room.roster.length === 2 && !m.room.roster.some((p) => p.id === guests[0].guest.id));
+		expect(after.room.hostId).toBe(guests[1].guest.id);
+	});
+
+	it("gives a new Host Play again at the Podium, and the old Host's start is refused", async () => {
+		const { code, guests, sockets } = await openPrivateRoom(1);
+		await toRound1(code, sockets);
+		await advanceRoom(code);
+		await finishMatch(code, sockets[1], 1);
+
+		sockets[0].send({ type: "leave" });
+		await sockets[1].next("room", (m) => m.room.phase === "over" && m.room.hostId === guests[1].guest.id);
+		const old = await joinRoom(code, guests[0]);
+		open.push(old);
+		old.send({ type: "start" });
+		expect(await old.next("rejected")).toMatchObject({ reason: "not_host" });
+
+		sockets[1].send({ type: "start" });
+		expect(await sockets[1].next("countdown", (m) => sockets[1].received.indexOf(m) > sockets[1].received.findIndex((x) => x.type === "podium"))).toMatchObject({ round: 1 });
+	});
+});

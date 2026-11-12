@@ -14,7 +14,7 @@ export function Lobby({ room, meId, notice, onStart }: { room: RoomSnapshot; meI
 				<h1 className="headline-md font-mono text-foreground">{room.code}</h1>
 			</header>
 			{room.kind === "private" && <RoomCodeShare link={`${location.origin}${roomPagePath(room.code)}`} />}
-			<Roster people={room.roster} meId={meId} hostId={room.kind === "solo" ? undefined : room.hostId} />
+			<Roster people={room.roster} meId={meId} hostId={room.kind === "solo" ? undefined : room.hostId} awayIds={room.awayIds} />
 			{notice && (
 				<p role="alert" className="body-sm text-destructive">
 					{notice}
