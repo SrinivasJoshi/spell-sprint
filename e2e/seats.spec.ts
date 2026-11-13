@@ -50,3 +50,37 @@ test("a dropped connection reconnects by itself and keeps the place in the Room"
 	await expect(friend.getByText(/^Waiting for .+ to start the Match\.$/)).toBeVisible();
 	for (const c of contexts) await c.close();
 });
+
+// Spec #11: leaving while the connection is down still gives up the place at once, Host role included.
+test("the Host leaves while reconnecting, and the friend becomes the Host at once, not 30 seconds later", async ({ browser }) => {
+	const { contexts, host, friend, path } = await privateRoomWithFriend(browser);
+	let blocked = false;
+	const routes: { page: WebSocketRoute; server?: WebSocketRoute }[] = [];
+	await host.routeWebSocket(/\/api\/rooms\/[A-Z0-9]{6}\/ws/, (page) => {
+		// While blocked, the network refuses every attempt to reconnect.
+		if (blocked) {
+			routes.push({ page });
+			return page.close();
+		}
+		routes.push({ page, server: page.connectToServer() });
+	});
+	await host.reload();
+	await friend.goto(path);
+	await expect(roster(friend)).toHaveCount(2);
+
+	blocked = true;
+	await routes.at(-1)!.server!.close();
+	await routes.at(-1)!.page.close();
+	await expect(host.getByRole("status").filter({ hasText: "Reconnecting…" })).toBeVisible();
+	// A few refused attempts in, the next retry is seconds away: leaving now can't ride on it.
+	const before = routes.length;
+	await expect.poll(() => routes.length, { timeout: 10_000 }).toBeGreaterThanOrEqual(before + 3);
+
+	blocked = false;
+	await host.getByRole("button", { name: "Leave Room" }).click();
+	await host.getByRole("alertdialog").getByRole("button", { name: "Leave Room" }).click();
+	await expect(host).toHaveURL(/\/$/);
+	await expect(roster(friend)).toHaveCount(1, { timeout: 5_000 });
+	await expect(friend.getByRole("button", { name: "Start" })).toBeVisible({ timeout: 5_000 });
+	for (const c of contexts) await c.close();
+});

@@ -65,7 +65,7 @@ export type RoomSnapshot = {
 /** How long a dropped connection keeps its place in the Room: a Player's Seat, or the Host role (spec #3). */
 export const SEAT_HOLD_MS = 30_000;
 
-export type RefusalReason = "bad_identity" | "not_found" | "solo" | "full";
+export type RefusalReason = "bad_identity" | "not_found" | "solo" | "full" | "ended";
 
 /** A Match is exactly this many Rounds (spec #3). */
 export const ROUNDS_PER_MATCH = 5;

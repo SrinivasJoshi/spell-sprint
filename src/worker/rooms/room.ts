@@ -170,6 +170,7 @@ export class Room extends DurableObject<AppEnv> {
 	async fetch(request: Request): Promise<Response> {
 		const room = await this.load();
 		if (!room) return refusedSocket("not_found");
+		if (await this.ctx.storage.get<boolean>("ended")) return refusedSocket("ended");
 		const person = JSON.parse(request.headers.get(ROOM_IDENTITY_HEADER) ?? "null") as RosterEntry | null;
 		if (!person) return refusedSocket("bad_identity");
 		if (room.kind === "solo" && person.id !== room.creatorId) return refusedSocket("solo");
@@ -267,11 +268,14 @@ export class Room extends DurableObject<AppEnv> {
 
 	/**
 	 * These people give up their place in the Room: off the roster, and their
-	 * Seat in the Match is gone. A Match with no Seat left is abandoned: the Room
-	 * goes back to the Lobby, so whoever comes back can start another.
+	 * Seat in the Match is gone. The last one out ends the Room, so none is left
+	 * empty. A Match with no Seat left but Spectators still here is abandoned:
+	 * they get the Lobby, one of them Host.
 	 */
 	private async giveUp(ids: string[]): Promise<void> {
-		await this.savePresence((await this.loadPresence()).filter((p) => !ids.includes(p.person.id)));
+		const remaining = (await this.loadPresence()).filter((p) => !ids.includes(p.person.id));
+		if (remaining.length === 0) return this.end();
+		await this.savePresence(remaining);
 		const match = await this.loadMatch();
 		if (match) {
 			const gone = [...match.gone, ...ids.filter((id) => id in match.scores && !match.gone.includes(id))];
@@ -297,6 +301,15 @@ export class Room extends DurableObject<AppEnv> {
 				// Closed already.
 			}
 		}
+	}
+
+	/** Nobody is left: the Room ends for good, and its code answers "ended" from now on (codes are never reused). */
+	private async end(): Promise<void> {
+		this.match = undefined;
+		this.presence = [];
+		await this.ctx.storage.delete(["match", "presence", "host", "used-words"]);
+		await this.ctx.storage.put("ended", true);
+		await this.ctx.storage.deleteAlarm();
 	}
 
 	/** The Host starts a Match, the first or another from the Podium: 5 Words drawn at random, then Round 1's countdown. */

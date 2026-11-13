@@ -1,10 +1,10 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { SEAT_HOLD_MS } from "../../src/shared/rooms";
 import { seedTestCatalogue } from "./support/catalogue";
-import { advanceRoom } from "./support/clock";
+import { advanceRoom, restartRoom } from "./support/clock";
 import { createRoom, issueGuest } from "./support/http";
 import { finishMatch, joinRoom, privateRoom, toRound1 } from "./support/match";
-import type { RoomSocket } from "./support/room-socket";
+import { openRoomSocket, type RoomSocket } from "./support/room-socket";
 
 beforeAll(seedTestCatalogue);
 
@@ -86,8 +86,8 @@ describe("a Player whose connection drops", () => {
 	});
 });
 
-describe("a Match every Player has left", () => {
-	it("is abandoned: back after 30 seconds, the Solo Room's creator finds the Lobby and can start again", async () => {
+describe("a Room everyone has left", () => {
+	it("ends, mid-Match: back after 30 seconds, the Solo Room's creator is told it has ended", async () => {
 		const guest = await issueGuest();
 		const code = await createRoom(guest.token);
 		const socket = await joinRoom(code, guest);
@@ -99,12 +99,51 @@ describe("a Match every Player has left", () => {
 		vi.setSystemTime(Date.now() + SEAT_HOLD_MS);
 		await advanceRoom(code);
 
-		const back = await joinRoom(code, guest);
+		const back = await openRoomSocket(code, guest.token);
+		expect(await back.next("refused")).toMatchObject({ reason: "ended", message: expect.stringMatching(/ended/) });
+		expect(back.got("room")).toBe(false);
+	});
+
+	it("ends in the Lobby too, once its last person leaves", async () => {
+		const { code, guests, sockets } = await openPrivateRoom(1);
+		sockets[1].send({ type: "leave" });
+		await sockets[0].next("room", (m) => m.room.roster.length === 1 && m.room.roster[0].id === guests[0].guest.id && sockets[1].closed);
+		sockets[0].send({ type: "leave" });
+		await vi.waitFor(() => expect(sockets[0].closed).toBe(true));
+		const back = await openRoomSocket(code, guests[0].token);
+		expect(await back.next("refused")).toMatchObject({ reason: "ended" });
+	});
+
+	it("but with Spectators still there, its abandoned Match gives way to the Lobby, one of them Host", async () => {
+		const { code, sockets } = await openPrivateRoom(0);
+		await toRound1(code, sockets);
+		const watcher = await issueGuest();
+		const socket = await joinRoom(code, watcher);
+		open.push(socket);
+		sockets[0].send({ type: "leave" });
+		const { room } = await socket.next("room", (m) => m.room.phase === "lobby");
+		expect(room).toMatchObject({ hostId: watcher.guest.id, spectatorIds: [] });
+		socket.send({ type: "start" });
+		expect(await socket.next("countdown")).toMatchObject({ round: 1 });
+	});
+});
+
+describe("a Room that restarts (a deploy)", () => {
+	it("counts whoever doesn't come back as away: they don't hold up the Round, and lose the Seat after 30 seconds", async () => {
+		const { code, guests, sockets } = await openPrivateRoom(1);
+		vi.useFakeTimers({ toFake: ["Date"] });
+		const word = await toRound1(code, sockets);
+		await restartRoom(code);
+
+		const back = await joinRoom(code, guests[0]);
 		open.push(back);
-		const { room } = await back.next("room");
-		expect(room).toMatchObject({ phase: "lobby", hostId: guest.guest.id, spectatorIds: [] });
-		back.send({ type: "start" });
-		expect(await back.next("countdown")).toMatchObject({ round: 1 });
+		expect((await back.next("room")).room.awayIds).toEqual([guests[1].guest.id]);
+		back.send({ type: "guess", guess: word });
+		expect(await back.next("round-end")).toMatchObject({ round: 1, word });
+
+		vi.setSystemTime(Date.now() + SEAT_HOLD_MS);
+		await advanceRoom(code);
+		await back.next("room", (m) => m.room.roster.length === 1);
 	});
 });
 

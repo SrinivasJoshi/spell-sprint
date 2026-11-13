@@ -5,6 +5,7 @@ const REFUSALS: Record<RefusalReason, string> = {
 	not_found: "There is no Room with that code.",
 	solo: "This is a Solo Room: only the person who created it can play in it.",
 	full: `This Room is full: it holds at most ${MAX_PEOPLE_PER_ROOM} people.`,
+	ended: "This Room has ended. Create a new one from the home page.",
 };
 
 const REJECTIONS: Record<RejectionReason, string> = {
