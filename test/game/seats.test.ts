@@ -1,3 +1,5 @@
+import { env } from "cloudflare:workers";
+import { runDurableObjectAlarm } from "cloudflare:test";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { SEAT_HOLD_MS } from "../../src/shared/rooms";
 import { seedTestCatalogue } from "./support/catalogue";
@@ -114,6 +116,19 @@ describe("a Room everyone has left", () => {
 		expect(await back.next("refused")).toMatchObject({ reason: "ended" });
 	});
 
+	it("ends with no Match and no alarm left when its last person leaves right after starting", async () => {
+		const guest = await issueGuest();
+		const code = await createRoom(guest.token);
+		const socket = await joinRoom(code, guest);
+		const tab = await joinRoom(code, guest);
+		socket.send({ type: "start" });
+		tab.send({ type: "leave" });
+		await vi.waitFor(() => expect(socket.closed && tab.closed).toBe(true));
+		const back = await openRoomSocket(code, guest.token);
+		expect(await back.next("refused")).toMatchObject({ reason: "ended" });
+		expect(await runDurableObjectAlarm(env.ROOM.get(env.ROOM.idFromName(code)))).toBe(false);
+	});
+
 	it("but with Spectators still there, its abandoned Match gives way to the Lobby, one of them Host", async () => {
 		const { code, sockets } = await openPrivateRoom(0);
 		await toRound1(code, sockets);
@@ -143,7 +158,8 @@ describe("a Room that restarts (a deploy)", () => {
 
 		vi.setSystemTime(Date.now() + SEAT_HOLD_MS);
 		await advanceRoom(code);
-		await back.next("room", (m) => m.room.roster.length === 1);
+		const { room } = await back.next("room", (m) => m.room.roster.length === 1);
+		expect(room.roster.map((p) => p.id)).toEqual([guests[0].guest.id]);
 	});
 });
 

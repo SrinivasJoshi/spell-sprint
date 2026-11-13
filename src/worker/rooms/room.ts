@@ -101,6 +101,7 @@ export class Room extends DurableObject<AppEnv> {
 	private record: RoomRecord | undefined;
 	private match: MatchState | undefined;
 	private presence: Presence[] | undefined;
+	private ended: boolean | undefined;
 	/** A start is drawing its Words. D1 is not storage, so the input gate lets another start in meanwhile. */
 	private starting = false;
 
@@ -112,6 +113,12 @@ export class Room extends DurableObject<AppEnv> {
 	private async loadMatch(): Promise<MatchState | undefined> {
 		this.match ??= await this.ctx.storage.get<MatchState>("match");
 		return this.match;
+	}
+
+	/** Ended for good (end()): its code answers "ended" and nothing more happens in it. */
+	private async isEnded(): Promise<boolean> {
+		this.ended ??= (await this.ctx.storage.get<boolean>("ended")) ?? false;
+		return this.ended;
 	}
 
 	private async loadPresence(): Promise<Presence[]> {
@@ -144,7 +151,7 @@ export class Room extends DurableObject<AppEnv> {
 	/**
 	 * Keeps the Host role with someone in the Room. When the Host is gone (left,
 	 * or away past SEAT_HOLD_MS) it passes to whoever has been here longest,
-	 * preferring someone connected; in an empty Room, to the next to arrive.
+	 * preferring someone connected. (A Room nobody is left in has ended.)
 	 */
 	private async handOff(): Promise<void> {
 		const presence = this.presence ?? [];
@@ -170,7 +177,7 @@ export class Room extends DurableObject<AppEnv> {
 	async fetch(request: Request): Promise<Response> {
 		const room = await this.load();
 		if (!room) return refusedSocket("not_found");
-		if (await this.ctx.storage.get<boolean>("ended")) return refusedSocket("ended");
+		if (await this.isEnded()) return refusedSocket("ended");
 		const person = JSON.parse(request.headers.get(ROOM_IDENTITY_HEADER) ?? "null") as RosterEntry | null;
 		if (!person) return refusedSocket("bad_identity");
 		if (room.kind === "solo" && person.id !== room.creatorId) return refusedSocket("solo");
@@ -214,6 +221,8 @@ export class Room extends DurableObject<AppEnv> {
 		} catch {
 			// Already closed.
 		}
+		// The Room ended with this person's leaving: nothing left to update.
+		if (await this.isEnded()) return;
 		// Their last tab gone: the Seat is held for SEAT_HOLD_MS.
 		const { id } = personOf(ws);
 		if (this.socketsOf(id, ws).length === 0) {
@@ -305,11 +314,14 @@ export class Room extends DurableObject<AppEnv> {
 
 	/** Nobody is left: the Room ends for good, and its code answers "ended" from now on (codes are never reused). */
 	private async end(): Promise<void> {
+		const room = await this.load();
 		this.match = undefined;
 		this.presence = [];
-		await this.ctx.storage.delete(["match", "presence", "host", "used-words"]);
-		await this.ctx.storage.put("ended", true);
+		this.ended = true;
+		// Everything but the record and the mark goes, whatever keys the Room has gathered.
 		await this.ctx.storage.deleteAlarm();
+		await this.ctx.storage.deleteAll();
+		await this.ctx.storage.put({ room, ended: true });
 	}
 
 	/** The Host starts a Match, the first or another from the Podium: 5 Words drawn at random, then Round 1's countdown. */
@@ -327,6 +339,8 @@ export class Room extends DurableObject<AppEnv> {
 		} finally {
 			this.starting = false;
 		}
+		// Drawing reads D1, which lets other messages in: the starter may have left, or the Room ended, meanwhile.
+		if ((await this.isEnded()) || !(await this.loadPresence()).some((p) => p.person.id === person.id)) return;
 		if (!words) return this.send(ws, rejection("no_words"));
 
 		const players = (await this.loadPresence()).map((p) => p.person);
